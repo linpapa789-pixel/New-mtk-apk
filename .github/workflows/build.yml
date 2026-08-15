@@ -1,0 +1,97 @@
+name: 🚀 Build Android APK & ESP32-S3 Firmware
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ==========================================
+  # JOB 1: Build Android APK (Debug & Release)
+  # ==========================================
+  build-android:
+    name: 📱 Build Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: 🔧 Grant Execute Permissions for Gradlew
+        run: |
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+          fi
+
+      - name: 📦 Build Android APK
+        run: |
+          if [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            gradle assembleDebug --stacktrace
+          fi
+
+      - name: 📤 Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MTK-UnlockTool-Android-APK
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: warn
+
+  # ==========================================
+  # JOB 2: Build ESP32-S3 N16R8 Firmware
+  # ==========================================
+  build-esp32:
+    name: ⚡ Build ESP32-S3 N16R8 Firmware
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 🛠️ Install PlatformIO Core
+        run: |
+          pip install --upgrade pip
+          pip install --upgrade platformio
+
+      - name: 🔨 Compile ESP32-S3 N16R8 Binary
+        working-directory: ./esp32-firmware
+        run: |
+          pio run -e esp32s3_n16r8
+
+      - name: 📦 Package Firmware Binaries
+        run: |
+          mkdir -p firmware_output
+          cp esp32-firmware/.pio/build/esp32s3_n16r8/firmware.bin firmware_output/esp32s3_n16r8_firmware.bin || true
+          cp esp32-firmware/.pio/build/esp32s3_n16r8/bootloader.bin firmware_output/bootloader.bin || true
+          cp esp32-firmware/.pio/build/esp32s3_n16r8/partitions.bin firmware_output/partitions.bin || true
+
+      - name: 📤 Upload ESP32-S3 Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESP32-S3-N16R8-Firmware-Binaries
+          path: firmware_output/*
+          retention-days: 30
+          if-no-files-found: warn

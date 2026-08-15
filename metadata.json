@@ -1,0 +1,6 @@
+{
+  "name": "MTK BROM Bridge",
+  "description": "ESP32-S3 hardware bridge and MediaTek BROM/Preloader service tool for partition operations, NVRAM backup/restore, and test-point triggering.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
