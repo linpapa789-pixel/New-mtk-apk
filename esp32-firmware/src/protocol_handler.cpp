@@ -110,7 +110,7 @@ void ProtocolHandler::processFrame(const uint8_t* frame, size_t length, uint8_t 
                            frame[BRIDGE_PROTO_HEADER_SIZE + payloadLen + 1];
 
     if (calculatedCrc != receivedCrc) {
-        sendGenericStatus(1, 0xCRC0, "CRC Check Failed", seq, sourceTransport, clientNum);
+        sendGenericStatus(1, 0xCE01, "CRC Check Failed", seq, sourceTransport, clientNum);
         return;
     }
 

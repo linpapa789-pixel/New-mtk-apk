@@ -32,7 +32,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
+
+      - name: 🐘 Setup Gradle 8.12
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
 
       - name: 🔑 Restore / Generate Debug Keystore
         run: |
