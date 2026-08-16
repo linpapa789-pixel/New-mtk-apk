@@ -78,23 +78,16 @@ class MtkBromProtocolEngine(
                 )
             )
 
-            if (now - lastDebugLogTime >= 600L) {
-                lastDebugLogTime = now
-                val rawCount = targetPhoneUsb.getRawDeviceCount()
-                val rawList = targetPhoneUsb.getRawDeviceList()
-                log("Debug: USB deviceList = [${if (rawList.isEmpty()) "EMPTY" else rawList}] (count: $rawCount)", LogLevel.INFO)
-            }
-
             val connected = targetPhoneUsb.scanAndConnect()
             if (connected) {
-                log("[+] MediaTek Port DETECTED (VID 0x0E8D)! Blasting BROM Handshake Sync...", LogLevel.SUCCESS)
+                log("[+] MediaTek Port DETECTED! Blasting BROM Handshake Sync...", LogLevel.SUCCESS)
                 val synced = targetPhoneUsb.blastBromHandshakeSync(10)
                 if (synced) {
                     log("[+] BROM Handshake Sync Locked (0x5F 0xF5 0xAF 0xFA)!", LogLevel.SUCCESS)
                 }
                 return true
             }
-            delay(35) // High-speed 35ms polling to capture BROM before device bootrom timeout
+            delay(50) // Steady 50ms polling to capture BROM before device bootrom timeout
         }
 
         log("[-] ERROR: Device connection timed out (${timeoutSec}s). Please retry with cable reconnect.", LogLevel.ERROR)

@@ -174,7 +174,7 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                         com.example.audio.ToolSoundManager.playOperationStop()
                     }
                     is TargetPhoneState.RequestingPermission -> {
-                        addLog(TerminalLog(now(), "Requesting USB OTG Host Permission...", LogLevel.WARNING))
+                        addLog(TerminalLog(now(), "Requesting USB OTG Permission for ${state.deviceName} [${state.mode.label} - ${state.vidPid}]...", LogLevel.WARNING))
                     }
                 }
             }
@@ -665,6 +665,193 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                 addLog(TerminalLog(now(), "Simulated USB Watchdog Reset Triggered.", LogLevel.SUCCESS))
             }
         }
+    }
+
+    // ADB & Fastboot state
+    private val _adbDeviceInfo = MutableStateFlow<String>("")
+    val adbDeviceInfo: StateFlow<String> = _adbDeviceInfo.asStateFlow()
+
+    private val _fastbootDeviceInfo = MutableStateFlow<String>("")
+    val fastbootDeviceInfo: StateFlow<String> = _fastbootDeviceInfo.asStateFlow()
+
+    private val _isAdbBusy = MutableStateFlow(false)
+    val isAdbBusy: StateFlow<Boolean> = _isAdbBusy.asStateFlow()
+
+    private val _isFastbootBusy = MutableStateFlow(false)
+    val isFastbootBusy: StateFlow<Boolean> = _isFastbootBusy.asStateFlow()
+
+    fun runAdbCommand(label: String, command: String, onComplete: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _isAdbBusy.value = true
+            addLog(TerminalLog(now(), ">>> [ADB CMD] $label: adb shell \"$command\"", LogLevel.INFO))
+            val dev = targetPhoneUsb.currentDevice
+            if (dev == null && !_isDryRun.value) {
+                addLog(TerminalLog(now(), "[-] ADB Error: No USB Device connected. Please connect with USB Debugging enabled.", LogLevel.ERROR))
+                _isAdbBusy.value = false
+                return@launch
+            }
+
+            if (_isDryRun.value || dev == null) {
+                // Dry run response
+                kotlinx.coroutines.delay(600)
+                val mockOutput = when {
+                    command.contains("getprop ro.product.model") -> "Redmi Note 12 Pro (MT6877)"
+                    command.contains("getprop") -> "[ro.product.model]: [Redmi Note 12 Pro]\n[ro.build.version.release]: [13]\n[ro.build.version.security_patch]: [2024-05-01]\n[ro.board.platform]: [mt6877]"
+                    command.contains("reboot bootloader") -> "Rebooting target device into Bootloader (Fastboot)..."
+                    command.contains("reboot recovery") -> "Rebooting target device into Recovery..."
+                    command.contains("reboot") -> "Device reboot signal sent."
+                    command.contains("settings put global setup_wizard_has_run") -> "FRP setup wizard flags bypassed."
+                    else -> "Success: Command executed."
+                }
+                addLog(TerminalLog(now(), "[ADB Response]\n$mockOutput", LogLevel.SUCCESS))
+                onComplete?.invoke(mockOutput)
+                _isAdbBusy.value = false
+                return@launch
+            }
+
+            val client = com.example.protocol.AdbProtocolClient(targetPhoneUsb.usbManager, dev)
+            val opened = client.open()
+            if (!opened) {
+                addLog(TerminalLog(now(), "[-] ADB Error: Failed to open USB ADB Interface (Ensure USB Debugging is ON).", LogLevel.ERROR))
+                _isAdbBusy.value = false
+                return@launch
+            }
+
+            val connected = client.connect()
+            if (!connected) {
+                addLog(TerminalLog(now(), "[!] ADB Warning: ADB Handshake not accepted. Check phone screen for Authorization prompt.", LogLevel.WARNING))
+            }
+
+            val output = client.executeShell(command)
+            client.close()
+
+            if (output.isNotBlank()) {
+                addLog(TerminalLog(now(), "[ADB Response]\n$output", LogLevel.SUCCESS))
+                onComplete?.invoke(output)
+            } else {
+                addLog(TerminalLog(now(), "[+] ADB Command executed successfully.", LogLevel.SUCCESS))
+                onComplete?.invoke("OK")
+            }
+            _isAdbBusy.value = false
+        }
+    }
+
+    fun runAdbReadInfo() {
+        runAdbCommand("Read Device Info", "getprop ro.product.model && getprop ro.product.brand && getprop ro.build.version.release && getprop ro.build.version.security_patch && getprop ro.board.platform") { res ->
+            _adbDeviceInfo.value = res
+        }
+    }
+
+    fun runAdbReboot(mode: String) {
+        val cmd = when (mode.lowercase()) {
+            "fastboot", "bootloader" -> "reboot bootloader"
+            "recovery" -> "reboot recovery"
+            "edl", "brom" -> "reboot edl || reboot brom"
+            else -> "reboot"
+        }
+        runAdbCommand("Reboot to ${mode.uppercase()}", cmd)
+    }
+
+    fun runAdbBypassFrp() {
+        runAdbCommand(
+            "Bypass Setup Wizard (FRP)",
+            "settings put global setup_wizard_has_run 1 && settings put secure user_setup_complete 1 && settings put global device_provisioned 1 && am start -c android.intent.category.HOME -a android.intent.action.MAIN"
+        )
+    }
+
+    fun runAdbEnableLanguages() {
+        runAdbCommand("Enable All Languages", "pm grant jp.co.c_lis.ccl.morelocale android.permission.CHANGE_CONFIGURATION")
+    }
+
+    fun runAdbRemoveBloatware(packageNames: List<String>) {
+        val cmds = packageNames.joinToString(" && ") { "pm uninstall -k --user 0 $it" }
+        runAdbCommand("Remove Bloatware (${packageNames.size} apps)", cmds)
+    }
+
+    fun runFastbootCommand(label: String, command: String, onComplete: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            _isFastbootBusy.value = true
+            addLog(TerminalLog(now(), ">>> [FASTBOOT CMD] $label: fastboot $command", LogLevel.INFO))
+            val dev = targetPhoneUsb.currentDevice
+            if (dev == null && !_isDryRun.value) {
+                addLog(TerminalLog(now(), "[-] Fastboot Error: No USB Device connected in Fastboot mode.", LogLevel.ERROR))
+                _isFastbootBusy.value = false
+                return@launch
+            }
+
+            if (_isDryRun.value || dev == null) {
+                kotlinx.coroutines.delay(600)
+                val mockResult = when {
+                    command.contains("getvar:all") || command.contains("getvar all") -> 
+                        "product: ruby_pro\nversion-bootloader: MT6877_V1.0\nsecure: yes\nunlocked: no\noff-mode-charge: 1\ncharger-screen-enabled: 1\nbattery-voltage: 4120mV"
+                    command.contains("unlock") -> "OKAY [ 0.054s ]\nUnlocked bootloader successfully."
+                    command.contains("lock") -> "OKAY [ 0.048s ]\nLocked bootloader successfully."
+                    command.contains("erase frp") -> "Erasing 'frp' ... OKAY [ 0.012s ]\nFinished."
+                    command.contains("erase userdata") -> "Erasing 'userdata' ... OKAY [ 0.231s ]\nFinished."
+                    command.contains("reboot") -> "Rebooting device ... OKAY"
+                    else -> "OKAY [ 0.020s ]"
+                }
+                addLog(TerminalLog(now(), "[Fastboot Output]\n$mockResult", LogLevel.SUCCESS))
+                onComplete?.invoke(mockResult)
+                _isFastbootBusy.value = false
+                return@launch
+            }
+
+            val client = com.example.protocol.FastbootProtocolClient(targetPhoneUsb.usbManager, dev)
+            val opened = client.open()
+            if (!opened) {
+                addLog(TerminalLog(now(), "[-] Fastboot Error: Failed to claim USB Fastboot Interface.", LogLevel.ERROR))
+                _isFastbootBusy.value = false
+                return@launch
+            }
+
+            val res = client.executeCommand(command)
+            client.close()
+
+            if (res.isSuccess) {
+                val output = res.info.ifEmpty { "OKAY" }
+                addLog(TerminalLog(now(), "[Fastboot Output]\n$output", LogLevel.SUCCESS))
+                onComplete?.invoke(output)
+            } else {
+                val err = res.error.ifEmpty { res.info.ifEmpty { "Command failed" } }
+                addLog(TerminalLog(now(), "[-] Fastboot Failed: $err", LogLevel.ERROR))
+                onComplete?.invoke("ERROR: $err")
+            }
+            _isFastbootBusy.value = false
+        }
+    }
+
+    fun runFastbootReadAllVars() {
+        runFastbootCommand("Get All Variables", "getvar:all") { out ->
+            _fastbootDeviceInfo.value = out
+        }
+    }
+
+    fun runFastbootUnlockBootloader() {
+        runFastbootCommand("Flashing Unlock", "flashing unlock")
+    }
+
+    fun runFastbootLockBootloader() {
+        runFastbootCommand("Flashing Lock", "flashing lock")
+    }
+
+    fun runFastbootEraseFrp() {
+        runFastbootCommand("Erase FRP Partition", "erase:frp")
+    }
+
+    fun runFastbootFormatUserdata() {
+        runFastbootCommand("Format Userdata (Wipe)", "erase:userdata")
+    }
+
+    fun runFastbootReboot(mode: String) {
+        val cmd = when (mode.lowercase()) {
+            "recovery" -> "reboot-recovery"
+            "fastbootd" -> "reboot-fastboot"
+            "edl" -> "oem edl"
+            "bootloader" -> "reboot-bootloader"
+            else -> "reboot"
+        }
+        runFastbootCommand("Reboot to ${mode.uppercase()}", cmd)
     }
 
     fun requestAiDiagnosis() {

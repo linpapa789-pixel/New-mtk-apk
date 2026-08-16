@@ -240,6 +240,22 @@ fun UnlockToolFlashScreen(
                             onStopClick = { viewModel.cancelCurrentOperation() }
                         )
                     }
+                    AppNavDestination.FASTBOOT -> {
+                        FastbootScreenTab(
+                            viewModel = viewModel,
+                            progress = progress,
+                            logs = logs,
+                            onStopClick = { viewModel.cancelCurrentOperation() }
+                        )
+                    }
+                    AppNavDestination.ADB -> {
+                        AdbScreenTab(
+                            viewModel = viewModel,
+                            progress = progress,
+                            logs = logs,
+                            onStopClick = { viewModel.cancelCurrentOperation() }
+                        )
+                    }
                     AppNavDestination.OTHER -> {
                         OtherScreenTab(
                             viewModel = viewModel,
@@ -433,7 +449,7 @@ private fun FlashScreenTab(
             shape = RoundedCornerShape(6.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
             border = BorderStroke(1.dp, Color(0xFF334155)),
-            modifier = Modifier.fillMaxWidth().weight(1f)
+            modifier = Modifier.fillMaxWidth().weight(0.7f)
         ) {
             PartitionTableView(
                 partitions = partitions,
@@ -442,12 +458,12 @@ private fun FlashScreenTab(
             )
         }
 
-        // Live Terminal Log Box
+        // Live Terminal Log Box (Maximum Screen Space)
         Card(
             shape = RoundedCornerShape(6.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
             border = BorderStroke(1.dp, Color(0xFF1E293B)),
-            modifier = Modifier.fillMaxWidth().weight(0.9f)
+            modifier = Modifier.fillMaxWidth().weight(1.3f)
         ) {
             CompactTerminalLogView(
                 logs = logs,
@@ -596,7 +612,7 @@ private fun BackupScreenTab(
             shape = RoundedCornerShape(6.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
             border = BorderStroke(1.dp, Color(0xFF334155)),
-            modifier = Modifier.fillMaxWidth().weight(1f)
+            modifier = Modifier.fillMaxWidth().weight(0.7f)
         ) {
             PartitionTableView(
                 partitions = partitions,
@@ -605,12 +621,12 @@ private fun BackupScreenTab(
             )
         }
 
-        // Live Terminal Log Box
+        // Live Terminal Log Box (Maximum Screen Space)
         Card(
             shape = RoundedCornerShape(6.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
             border = BorderStroke(1.dp, Color(0xFF1E293B)),
-            modifier = Modifier.fillMaxWidth().weight(0.9f)
+            modifier = Modifier.fillMaxWidth().weight(1.3f)
         ) {
             CompactTerminalLogView(
                 logs = logs,
@@ -1389,8 +1405,389 @@ private fun CompactTerminalLogView(
 }
 
 // =============================================================================
-// FIXED COMPACT OPERATION FOOTER (Loading bar, % and Speed)
+// 4️⃣ FASTBOOT SCREEN TAB
 // =============================================================================
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FastbootScreenTab(
+    viewModel: MtkBridgeViewModel,
+    progress: OperationProgress,
+    logs: List<TerminalLog>,
+    onStopClick: () -> Unit
+) {
+    val isFastbootBusy by viewModel.isFastbootBusy.collectAsState()
+    val isDryRun by viewModel.isDryRun.collectAsState()
+    val fastbootInfo by viewModel.fastbootDeviceInfo.collectAsState()
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Upper Controls & Action Cards
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.42f),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Header & Info Banner
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.FlashOn, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(16.dp))
+                        Text("Fastboot Protocol Engine", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
+                    }
+                    Text(if (isDryRun) "SIMULATION ACTIVE" else "LIVE FASTBOOT", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                }
+
+                HorizontalDivider(color = Color(0xFF1E293B))
+
+                // Section 1: Device Variables & ID
+                Text("IDENTIFICATION & VARIABLES", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = { viewModel.runFastbootReadAllVars() },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("📋 GetVar:All (Info)", fontSize = 11.sp, color = Color.White)
+                    }
+                    Button(
+                        onClick = { viewModel.runFastbootCommand("Check Unlocked", "getvar:unlocked") },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🔑 Check Lock Status", fontSize = 11.sp, color = Color.White)
+                    }
+                }
+
+                // Section 2: Bootloader & Partition Actions
+                Text("BOOTLOADER & PARTITION UNLOCK", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.runFastbootUnlockBootloader() },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF047857)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🔓 Flashing Unlock", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                    Button(
+                        onClick = { viewModel.runFastbootLockBootloader() },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🔒 Flashing Lock", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                }
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.runFastbootEraseFrp() },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB45309)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🗑️ Erase FRP (Fastboot)", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                    Button(
+                        onClick = { viewModel.runFastbootFormatUserdata() },
+                        enabled = !isFastbootBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFBE123C)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("⚡ Format Userdata (Wipe)", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                }
+
+                // Section 3: Fastboot Reboot Switcher
+                Text("REBOOT MODE SWITCHER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFA855F7))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.runFastbootReboot("system") },
+                        enabled = !isFastbootBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot System", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runFastbootReboot("recovery") },
+                        enabled = !isFastbootBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot Recovery", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runFastbootReboot("fastbootd") },
+                        enabled = !isFastbootBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot FastbootD", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runFastbootReboot("edl") },
+                        enabled = !isFastbootBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot EDL / BROM", fontSize = 10.sp, color = Color.White)
+                    }
+                }
+            }
+        }
+
+        // Lower: Real-time Terminal Log (Spacious view)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.58f),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            CompactTerminalLogView(
+                logs = logs,
+                onClear = { viewModel.clearLogs() },
+                onAiHelp = { viewModel.requestAiLogAnalysis() }
+            )
+        }
+    }
+}
+
+// =============================================================================
+// 5️⃣ ADB SCREEN TAB
+// =============================================================================
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AdbScreenTab(
+    viewModel: MtkBridgeViewModel,
+    progress: OperationProgress,
+    logs: List<TerminalLog>,
+    onStopClick: () -> Unit
+) {
+    val isAdbBusy by viewModel.isAdbBusy.collectAsState()
+    val isDryRun by viewModel.isDryRun.collectAsState()
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        // Upper Controls & Action Cards
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.42f),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Header & Info Banner
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Default.Build, contentDescription = null, tint = Color(0xFF06B6D4), modifier = Modifier.size(16.dp))
+                        Text("Android Debug Bridge (ADB)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF06B6D4))
+                    }
+                    Text(if (isDryRun) "SIMULATION ACTIVE" else "LIVE ADB HOST", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF94A3B8))
+                }
+
+                HorizontalDivider(color = Color(0xFF1E293B))
+
+                // Section 1: Device Information
+                Text("DEVICE INFORMATION & STATUS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF38BDF8))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = { viewModel.runAdbReadInfo() },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("📱 Read Full Device Info", fontSize = 11.sp, color = Color.White)
+                    }
+                    Button(
+                        onClick = { viewModel.runAdbCommand("Battery Info", "dumpsys battery | grep -E 'level|status|health|temperature'") },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🔋 Battery & Health", fontSize = 11.sp, color = Color.White)
+                    }
+                }
+
+                // Section 2: FRP & Service Bypass
+                Text("BYPASS & SERVICE ENABLER", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Button(
+                        onClick = { viewModel.runAdbBypassFrp() },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF047857)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🔓 Bypass Setup Wizard (FRP)", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                    Button(
+                        onClick = { viewModel.runAdbEnableLanguages() },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🌐 Enable All Languages (MoreLocale)", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                }
+
+                // Section 3: Bloatware Remover
+                Text("BLOATWARE REMOVER (SYSTEM CLEANUP)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF59E0B))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val miBloat = listOf(
+                                "com.miui.analytics", "com.miui.msa.global", "com.xiaomi.glgm",
+                                "com.miui.bugreport", "com.miui.cleanmaster"
+                            )
+                            viewModel.runAdbRemoveBloatware(miBloat)
+                        },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🗑️ Disable Xiaomi Bloatware", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                    Button(
+                        onClick = {
+                            val oppoBloat = listOf(
+                                "com.heytap.mcs", "com.heytap.themestore", "com.oppo.market",
+                                "com.nearme.gamecenter"
+                            )
+                            viewModel.runAdbRemoveBloatware(oppoBloat)
+                        },
+                        enabled = !isAdbBusy,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.weight(1f).height(34.dp)
+                    ) {
+                        Text("🗑️ Disable Oppo/Realme Bloat", fontSize = 11.sp, color = Color.White, maxLines = 1)
+                    }
+                }
+
+                // Section 4: ADB Reboot Options
+                Text("REBOOT DESTINATIONS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFA855F7))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { viewModel.runAdbReboot("system") },
+                        enabled = !isAdbBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot System", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runAdbReboot("bootloader") },
+                        enabled = !isAdbBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot to Fastboot", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runAdbReboot("recovery") },
+                        enabled = !isAdbBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot to Recovery", fontSize = 10.sp, color = Color.White)
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runAdbReboot("edl") },
+                        enabled = !isAdbBusy,
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Text("Reboot to BROM / EDL", fontSize = 10.sp, color = Color.White)
+                    }
+                }
+            }
+        }
+
+        // Lower: Real-time Terminal Log (Spacious view)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.58f),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF020617)),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            CompactTerminalLogView(
+                logs = logs,
+                onClear = { viewModel.clearLogs() },
+                onAiHelp = { viewModel.requestAiLogAnalysis() }
+            )
+        }
+    }
+}
 @Composable
 private fun CompactOperationFooter(progress: OperationProgress) {
     Surface(

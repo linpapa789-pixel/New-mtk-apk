@@ -26,13 +26,25 @@ enum class AppNavDestination(
         icon = Icons.Default.FolderOpen
     ),
     SERVICE(
-        title = "🔓 Service / Unlock",
-        shortTitle = "Service",
+        title = "🔓 BROM Service",
+        shortTitle = "BROM",
         subtitle = "One-Click FRP, Factory Reset & BL Unlock",
         icon = Icons.Default.LockOpen
     ),
+    FASTBOOT(
+        title = "🟡 Fastboot",
+        shortTitle = "Fastboot",
+        subtitle = "Getvar, BL Unlock, TWRP/Boot Flash & Erase FRP",
+        icon = Icons.Default.FlashOn
+    ),
+    ADB(
+        title = "🔷 ADB Mode",
+        shortTitle = "ADB",
+        subtitle = "Device Info, Reboot to BROM/FB & Bypass Tools",
+        icon = Icons.Default.FolderOpen
+    ),
     OTHER(
-        title = "⚙️ Other & Advanced",
+        title = "⚙️ Other & Tools",
         shortTitle = "Other",
         subtitle = "Memory Test, Auth Bypass & Gemini AI",
         icon = Icons.Default.AutoAwesome
