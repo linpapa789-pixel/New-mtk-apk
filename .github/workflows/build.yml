@@ -33,10 +33,10 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🐘 Setup Gradle 8.12
+      - name: 🐘 Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.12'
+          gradle-version: '9.3.1'
 
       - name: 🔑 Restore / Generate Debug Keystore
         run: |
@@ -59,9 +59,9 @@ jobs:
       - name: 📦 Build Android APK
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew assembleDebug --stacktrace -Dkotlin.compiler.execution.strategy=daemon
           else
-            gradle assembleDebug --stacktrace
+            gradle assembleDebug --stacktrace -Dkotlin.compiler.execution.strategy=daemon
           fi
 
       - name: 📤 Upload Android APK Artifact
