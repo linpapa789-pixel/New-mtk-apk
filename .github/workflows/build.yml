@@ -33,13 +33,11 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
       - name: 🐘 Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-          cache-read-only: false
 
       - name: 🔑 Restore / Generate Debug Keystore
         run: |
@@ -62,9 +60,9 @@ jobs:
       - name: 📦 Build Android APK (Debug)
         run: |
           if [ -f "./gradlew" ]; then
-            ./gradlew assembleDebug --stacktrace -Dkotlin.compiler.execution.strategy=daemon
+            ./gradlew assembleDebug --stacktrace -Djava.awt.headless=true -Dkotlin.compiler.execution.strategy=in-process
           else
-            gradle assembleDebug --stacktrace -Dkotlin.compiler.execution.strategy=daemon
+            gradle assembleDebug --stacktrace -Djava.awt.headless=true -Dkotlin.compiler.execution.strategy=in-process
           fi
 
       - name: 📤 Upload Android APK Artifact

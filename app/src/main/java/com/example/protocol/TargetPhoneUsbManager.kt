@@ -12,6 +12,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import java.util.Collections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -72,6 +73,9 @@ class TargetPhoneUsbManager(
     private val _phoneState = MutableStateFlow<TargetPhoneState>(TargetPhoneState.Disconnected)
     val phoneState: StateFlow<TargetPhoneState> = _phoneState.asStateFlow()
 
+    // Guard against repeated permission requests for the same device during high-speed polling
+    private val pendingPermissionDevices = Collections.synchronizedSet(mutableSetOf<String>())
+
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             val action = intent?.action ?: return
@@ -82,6 +86,10 @@ class TargetPhoneUsbManager(
                     } else {
                         @Suppress("DEPRECATION")
                         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    }
+                    val deviceKey = device?.let { "${it.vendorId}:${it.productId}:${it.deviceName}" }
+                    if (deviceKey != null) {
+                        pendingPermissionDevices.remove(deviceKey)
                     }
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
                     if (granted && device != null) {
@@ -115,6 +123,10 @@ class TargetPhoneUsbManager(
                     } else {
                         @Suppress("DEPRECATION")
                         intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+                    }
+                    val deviceKey = device?.let { "${it.vendorId}:${it.productId}:${it.deviceName}" }
+                    if (deviceKey != null) {
+                        pendingPermissionDevices.remove(deviceKey)
                     }
                     if (device != null && isMediaTekDevice(device)) {
                         disconnect()
@@ -153,7 +165,18 @@ class TargetPhoneUsbManager(
         return false
     }
 
+    fun getRawDeviceCount(): Int = usbManager.deviceList.size
+    
+    fun getRawDeviceList(): String = usbManager.deviceList.values
+        .joinToString(", ") { "VID:0x%04X PID:0x%04X".format(it.vendorId, it.productId) }
+
     fun requestDevicePermission(device: UsbDevice) {
+        val deviceKey = "${device.vendorId}:${device.productId}:${device.deviceName}"
+        if (pendingPermissionDevices.contains(deviceKey)) {
+            // Already requested, wait for user response
+            return
+        }
+        pendingPermissionDevices.add(deviceKey)
         _phoneState.value = TargetPhoneState.RequestingPermission
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT

@@ -61,7 +61,17 @@ class MtkBromProtocolEngine(
         log("==================================================", LogLevel.WARNING)
 
         val startTime = System.currentTimeMillis()
+        var lastDebugLogTime = 0L
+
         while (System.currentTimeMillis() - startTime < timeoutSec * 1000L) {
+            val now = System.currentTimeMillis()
+            if (now - lastDebugLogTime >= 600L) {
+                lastDebugLogTime = now
+                val rawCount = targetPhoneUsb.getRawDeviceCount()
+                val rawList = targetPhoneUsb.getRawDeviceList()
+                log("Debug: USB deviceList = [${if (rawList.isEmpty()) "EMPTY" else rawList}] (count: $rawCount)", LogLevel.INFO)
+            }
+
             val connected = targetPhoneUsb.scanAndConnect()
             if (connected) {
                 log("[+] MediaTek Port DETECTED (VID 0x0E8D)! Blasting BROM Handshake Sync...", LogLevel.SUCCESS)
