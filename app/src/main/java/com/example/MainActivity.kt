@@ -109,7 +109,7 @@ fun MtkMainApp(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var currentDestination by remember { mutableStateOf(AppNavDestination.UNLOCKTOOL_CONSOLE) }
+    val currentDestination by viewModel.currentDestination.collectAsState()
 
     val aiAnalysis by viewModel.aiAnalysis.collectAsState()
     val chipInfo by viewModel.chipInfo.collectAsState()
@@ -121,7 +121,7 @@ fun MtkMainApp(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = Color.White,
+                drawerContainerColor = Color(0xFF0F172A),
                 drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
                 modifier = Modifier.width(300.dp)
             ) {
@@ -141,7 +141,7 @@ fun MtkMainApp(
                             color = Color.White
                         )
                         Text(
-                            text = "Hardware BROM & Flashing Engine",
+                            text = "Direct USB OTG Flashing & Service Tool",
                             fontSize = 11.sp,
                             color = Color(0xFFBFDBFE)
                         )
@@ -179,7 +179,7 @@ fun MtkMainApp(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Clean Navigation Menu: UnlockTool Flashing Console & ESP32-S3 Hardware Bridge
+                // Navigation Menu Items
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -193,7 +193,7 @@ fun MtkMainApp(
                                 Icon(
                                     destination.icon,
                                     contentDescription = null,
-                                    tint = if (isSelected) Color(0xFF1D4ED8) else Color(0xFF64748B),
+                                    tint = if (isSelected) Color(0xFF38BDF8) else Color(0xFF64748B),
                                     modifier = Modifier.size(20.dp)
                                 )
                             },
@@ -203,23 +203,23 @@ fun MtkMainApp(
                                         text = destination.title,
                                         fontSize = 13.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) Color(0xFF1D4ED8) else Color(0xFF0F172A)
+                                        color = if (isSelected) Color(0xFF38BDF8) else Color(0xFFF1F5F9)
                                     )
                                     Text(
                                         text = destination.subtitle,
                                         fontSize = 10.sp,
-                                        color = if (isSelected) Color(0xFF3B82F6) else Color(0xFF94A3B8)
+                                        color = if (isSelected) Color(0xFF60A5FA) else Color(0xFF94A3B8)
                                     )
                                 }
                             },
                             selected = isSelected,
                             onClick = {
-                                currentDestination = destination
+                                viewModel.navigateTo(destination)
                                 scope.launch { drawerState.close() }
                             },
                             shape = RoundedCornerShape(10.dp),
                             colors = NavigationDrawerItemDefaults.colors(
-                                selectedContainerColor = Color(0xFFEFF6FF),
+                                selectedContainerColor = Color(0xFF1E293B),
                                 unselectedContainerColor = Color.Transparent
                             )
                         )

@@ -5,10 +5,12 @@ import com.example.model.PartitionEntry
 object ScatterParser {
 
     /**
-     * Parses standard MediaTek scatter format (v1.1.0 to v2.0.0+)
+     * Strictly and dynamically parses MediaTek scatter format (v1.1.0, v1.1.2, v2.0.0+).
+     * Populates partition list EXACTLY as defined in the specific scatter file.
+     * Returns empty list if no valid partition entries found in the file.
      */
     fun parseScatter(content: String): Pair<String, List<PartitionEntry>> {
-        var platform = "MT6765"
+        var platform = "MTK_DEVICE"
         val partitions = mutableListOf<PartitionEntry>()
 
         val lines = content.lines()
@@ -29,7 +31,10 @@ object ScatterParser {
             if (line.contains("platform:", ignoreCase = true) || line.contains("project:", ignoreCase = true)) {
                 val parts = line.split(":")
                 if (parts.size >= 2) {
-                    platform = parts[1].trim()
+                    val p = parts[1].trim()
+                    if (p.isNotEmpty()) {
+                        platform = p
+                    }
                 }
                 continue
             }
@@ -49,14 +54,15 @@ object ScatterParser {
                             sizeBytes = sizeBytes,
                             region = currentRegion,
                             isDownload = currentIsDownload,
-                            isProtectedNv = isNv
+                            isProtectedNv = isNv,
+                            isSelectedForFlashing = currentIsDownload && currentFileName.isNotEmpty() && currentFileName != "NONE"
                         )
                     )
                 }
 
                 inPartitionBlock = true
                 val idxStr = line.substringAfter(":").trim()
-                currentPartitionIndex = idxStr.toIntOrNull() ?: (partitions.size)
+                currentPartitionIndex = idxStr.toIntOrNull() ?: partitions.size
                 currentPartName = ""
                 currentFileName = ""
                 currentLinearAddr = "0x0"
@@ -94,7 +100,7 @@ object ScatterParser {
             }
         }
 
-        // Add last partition block if present
+        // Add final partition block if present
         if (inPartitionBlock && currentPartName.isNotEmpty()) {
             val sizeBytes = parseHexOrDec(currentSize)
             val isNv = isNvramPartition(currentPartName)
@@ -109,14 +115,10 @@ object ScatterParser {
                     sizeBytes = sizeBytes,
                     region = currentRegion,
                     isDownload = currentIsDownload,
-                    isProtectedNv = isNv
+                    isProtectedNv = isNv,
+                    isSelectedForFlashing = currentIsDownload && currentFileName.isNotEmpty() && currentFileName != "NONE"
                 )
             )
-        }
-
-        // If parsed empty (e.g. unformatted custom text), fallback to standard preset
-        if (partitions.isEmpty()) {
-            return getDefaultPreset("MT6765")
         }
 
         return Pair(platform, partitions)
@@ -137,26 +139,10 @@ object ScatterParser {
 
     private fun isNvramPartition(name: String): Boolean {
         val lower = name.lowercase()
-        return lower in listOf("nvram", "nvdata", "protect1", "protect2", "protect_f", "protect_s", "secro", "nvcfg", "proinfo")
-    }
-
-    fun getDefaultPreset(platform: String): Pair<String, List<PartitionEntry>> {
-        val list = listOf(
-            PartitionEntry(0, "preloader", "preloader.bin", "0x0", "0x0", "0x40000", 262144, "EMMC_BOOT_1", true, false),
-            PartitionEntry(1, "pgpt", "pgpt.bin", "0x0", "0x0", "0x80000", 524288, "EMMC_USER", true, false),
-            PartitionEntry(2, "nvram", "nvram.bin", "0x80000", "0x80000", "0x500000", 5242880, "EMMC_USER", true, true),
-            PartitionEntry(3, "protect1", "protect1.bin", "0x580000", "0x580000", "0xA00000", 10485760, "EMMC_USER", true, true),
-            PartitionEntry(4, "protect2", "protect2.bin", "0xF80000", "0xF80000", "0xA00000", 10485760, "EMMC_USER", true, true),
-            PartitionEntry(5, "secro", "secro.bin", "0x1980000", "0x1980000", "0x600000", 6291456, "EMMC_USER", true, true),
-            PartitionEntry(6, "nvcfg", "nvcfg.bin", "0x1F80000", "0x1F80000", "0x800000", 8388608, "EMMC_USER", true, true),
-            PartitionEntry(7, "nvdata", "nvdata.bin", "0x2780000", "0x2780000", "0x2000000", 33554432, "EMMC_USER", true, true),
-            PartitionEntry(8, "boot", "boot.img", "0x4780000", "0x4780000", "0x2000000", 33554432, "EMMC_USER", true, false),
-            PartitionEntry(9, "dtbo", "dtbo.img", "0x6780000", "0x6780000", "0x800000", 8388608, "EMMC_USER", true, false),
-            PartitionEntry(10, "vbmeta", "vbmeta.img", "0x6F80000", "0x6F80000", "0x800000", 8388608, "EMMC_USER", true, false),
-            PartitionEntry(11, "recovery", "recovery.img", "0x7780000", "0x7780000", "0x2000000", 33554432, "EMMC_USER", true, false),
-            PartitionEntry(12, "super", "super.img", "0x9780000", "0x9780000", "0x120000000", 4831838208, "EMMC_USER", true, false),
-            PartitionEntry(13, "userdata", "NONE", "0x129780000", "0x129780000", "0x0", 0, "EMMC_USER", false, false)
+        return lower in listOf(
+            "nvram", "nvdata", "protect1", "protect2", "protect_f", "protect_s",
+            "secro", "nvcfg", "proinfo", "seccfg", "sec1", "persist", "persist_backup"
         )
-        return Pair(platform, list)
     }
 }
+

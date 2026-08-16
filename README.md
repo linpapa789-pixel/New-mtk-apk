@@ -1,95 +1,117 @@
-# ⚡ Android MTK BROM Service & Flashing Tool (UnlockTool Engine) with ESP32-S3 N16R8 Bridge
+# 📱 MTK Bridge & Flasher Tool (Android Native)
 
-A professional-grade Android application and ESP32-S3 Hardware Bridge designed for MediaTek (MTK) chipset servicing, scatter flashing, partition read/write, FRP unlocking, and hardware-level BROM / Test-Point automation.
+[![Platform](https://img.shields.io/badge/Platform-Android%20OTG-green.svg)](https://developer.android.com)
+[![Protocol](https://img.shields.io/badge/Protocol-MediaTek%20BROM%20%2F%20DA-blue.svg)](https://mediatek.com)
+[![UI](https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-purple.svg)](https://developer.android.com/jetpack/compose)
+[![Architecture](https://img.shields.io/badge/Architecture-Kotlin%20%7C%20Coroutines%20%7C%20Flow-orange.svg)](https://kotlinlang.org)
 
----
-
-## 📱 Features
-
-1. **UnlockTool Multi-Tab Flashing Console:**
-   - **Brand & Model Presets:** Xiaomi / Redmi (Redmi 9A, 9C, Note 8 Pro, 10S, etc.), Oppo, Realme, Vivo, Samsung, Infinix, Tecno.
-   - **Scatter File Parser:** Parse v1.1.x & v2.x XML/txt scatters (e.g. `MT6765_Android_scatter.txt`).
-   - **Auto NV Data Backup (IMEI / Baseband Guard):** Dumps `nvram`, `nvdata`, `protect1`, `protect2`, `nvcfg`, and `secro` with SHA-256 validation before any wipe/flash action.
-   - **Active BROM Sniffer:** Automatically listens for MTK USB port (`0x0E8D`) upon pressing START and shoots `0xA0` handshake within 100ms before BROM timeouts.
-   - **Service Functions:** Read Device Info, Scatter Flash, Erase FRP, Factory Reset, Bypass SLA/DAA Auth, Unlock Bootloader, Read/Write single partitions.
-   - **Built-in Gemini AI Assistant:** Instant MTK error analysis, test-point lookup, scatter validation, and repair troubleshooting.
-
-2. **ESP32-S3 N16R8 Hardware Bridge:**
-   - Designed specifically for **ESP32-S3-DevKitC-1 (N16R8: 16MB Flash, 8MB Octal PSRAM)**.
-   - **Dual Type-C Interface:**
-     - `USB Port`: Native USB Host to connect directly to Target MTK Phone via OTG.
-     - `COM Port`: UART & 5V Power supply from PC or USB adapter.
-   - **Hardware Test-Point Trigger:** Configurable 50ms - 300ms ground pulse for forcing dead/hard-bricked devices into BROM.
-   - **Wireless Control:** WebSocket / HTTP JSON API over WiFi Access Point & Station mode.
+**MTK Bridge & Flasher Tool** သည် ကွန်ပျူတာ (PC) မလိုဘဲ Android ဖုန်းတစ်လုံးမှ အခြား MediaTek (MTK) ဖုန်းတစ်လုံးသို့ **USB-OTG Cable** အသုံးပြု၍ တိုက်ရိုက် Flash ရေးသားခြင်း၊ Partition Backup ထုတ်ယူခြင်း၊ Factory Reset ချခြင်း၊ FRP Lock ဖြုတ်ခြင်းနှင့် Bootloader Unlock လုပ်ဆောင်နိုင်သော ပရော်ဖက်ရှင်နယ် **Mobile-to-Mobile GSM Service Tool** ဖြစ်ပါသည်။
 
 ---
 
-## 🔌 ESP32-S3 N16R8 Pinout & Wiring
+## ✨ အဓိက လုပ်ဆောင်ချက်များ (Key Features)
 
-| Interface | ESP32-S3 Pin | Target / Function | Wire Color / Note |
-| :--- | :--- | :--- | :--- |
-| **USB D+** | `GPIO 20` | Target Phone USB D+ | Green (or via Native Type-C USB Port) |
-| **USB D-** | `GPIO 19` | Target Phone USB D- | White (or via Native Type-C USB Port) |
-| **GND** | `GND` | Common Ground | Black |
-| **5V VBUS** | `5V / VBUS` | Target Phone Power | Red (5V Rail) |
-| **Test-Point (TP)** | `GPIO 4` | Force BROM CLK/DAT0 Pulse | Pulled low (100ms) for TP Trigger |
-| **VBUS Relay** | `GPIO 5` | Power Cycle Reset | Cut/Restore VBUS power |
-| **Hardware UART TX** | `GPIO 17` | MTK RX (Direct Motherboard) | High-speed BROM Serial |
-| **Hardware UART RX** | `GPIO 18` | MTK TX (Direct Motherboard) | High-speed BROM Serial |
-| **Status RGB LED** | `GPIO 48` | WS2812 RGB State Indicator | Blue=Ready, Green=Flashing, Red=Error |
+### ⚡ 1. Direct MTK BROM Protocol (No PC Required)
+- **USB-OTG Direct Low-Level Communication**: Android ၏ `android.hardware.usb` Bulk Endpoints မှတစ်ဆင့် MediaTek Bootrom နှင့် တိုက်ရိုက် အပြန်အလှန် ချိတ်ဆက်ခြင်း။
+- **BROM Handshake Sync**: Byte-by-Byte Inverted Echo Handshake (0xA0 -> 0x5F, 0x0A -> 0xF5, 0x50 -> 0xAF, 0x05 -> 0xFA)။
+- **Hardware Register Inspection**: Hardware Code (0xA1), Subcode (0xA2), HW Version (0xA3), SW Version (0xA4), MEID (0xE1), SOC ID (0xE2) ဖတ်ရှုခြင်း။
+- **SLA / DAA Security Bypass Matrix**: Kamakiri SLA / DAA / SBC Watchdog USB Control Transfer Payload စနစ်။
 
----
+### 💾 2. Firmware Flashing & GPT Partition Engine
+- **Scatter File Parser**: Android MediaTek Scatter File (`MT67xx_Android_scatter.txt`) အား အပြည့်အဝ ဖတ်ရှုစစ်ဆေးခြင်း။
+- **Real Storage GPT Table**: ဖုန်း၏ LBA 1..33 GUID Partition Table မှ Partition List ကို အလိုအလျောက် Live Parse ပြုလုပ်ခြင်း။
+- **SHA-256 Checksum Verification**: ရေးသားပြီးတိုင်း Integrity ၁၀၀% ပြည့်မီမှု ရှိမရှိ Post-Write Verification ပြုလုပ်ခြင်း။
+- **Safe NVRAM Protection**: Firmware မရေးမီ `nvram`, `nvdata`, `protect1`, `protect2`, `secro` Partition များကို Auto-Backup ပြုလုပ်ပေးခြင်း။
 
-## 🛠️ How to Flash ESP32-S3 N16R8 Firmware
+### 🛠️ 3. One-Click GSM Service Functions
+- **Erase FRP**: Google Account Lock ကျနေသော FRP Partition ကို တိုက်ရိုက် Format / Wipe ပြုလုပ်ခြင်း။
+- **Unlock Bootloader**: `seccfg` partition ထဲသို့ `SCFG` magic header (0x47464353) နှင့် Unlock status code ရေးသားပြီး ချက်ချင်း Bootloader Unlock လုပ်ခြင်း။
+- **Relock Bootloader**: Device Security ကို မူလ Locked အခြေအနေသို့ ပြန်လည်ရောက်ရှိစေခြင်း။
+- **Disable Mi Account**: Xiaomi ဖုန်းများအတွက် Cloud Lock authentication status ကို persist partition မှတစ်ဆင့် Reset ချခြင်း။
+- **Factory Reset (Format Data)**: Userdata, Cache နှင့် Metadata များကို Clean Wipe ပြုလုပ်ခြင်း။
+- **Hardware Memory Test**: RAM Data Pattern Test (0x55AA55AA) နှင့် eMMC / UFS CID/CSD register health check။
 
-### Option A: Using PlatformIO (Recommended)
-1. Open the `/esp32-firmware` folder in VS Code with the PlatformIO extension.
-2. Connect your ESP32-S3 to your computer via the **COM** Type-C port.
-3. Run the following command:
-   ```bash
-   pio run -e esp32s3_n16r8 -t upload
-   ```
-4. Configuration is already set for 16MB Flash (`qio`) and 8MB Octal PSRAM (`qio_opi`).
-
-### Option B: Using Arduino IDE
-1. Go to **Tools > Board** -> Select `ESP32S3 Dev Module`.
-2. Configure settings:
-   - **Flash Size:** `16MB (128Mb)`
-   - **Partition Scheme:** `16M Flash (3MB APP/9.9MB FATFS)` or `Default 16MB`
-   - **PSRAM:** `OPI PSRAM` (Octal PSRAM)
-   - **USB Mode:** `Hardware CDC and JTAG`
-   - **USB CDC On Boot:** `Enabled`
-3. Open `esp32-firmware/src/main.cpp` and click **Upload**.
+### 🎨 4. Modern PC-Class GSM Tool Interface
+- **UnlockTool / Hydra Style Dark Interface**: Jetpack Compose Material 3 ဖြင့် ဖန်တီးထားသော ပရော်ဖက်ရှင်နယ် UI။
+- **Live Terminal Log**: စက်၏ လုပ်ဆောင်ချက်အဆင့်ဆင့်နှင့် Debug Log များကို စက္ကန့်နှင့်အမျှ တိုက်ရိုက်ကြည့်ရှုနိုင်ခြင်း။
+- **Dynamic Start / Stop Button**: လိုအပ်ပါက လုပ်ဆောင်ချက်ကို ချက်ချင်း ရပ်တန့်နိုင်သော Instant Cancel/Abort Control။
+- **Audio Feedback**: USB Plug in/out၊ Operation Start၊ Stop နှင့် Done အသံ (Sound Effects) စနစ် ပါဝင်ခြင်း။
+- **Gemini AI Diagnostic Advisor**: Error တက်ပါက AI ဖြင့် ပြဿနာရှာဖွေပြီး ဖြေရှင်းနည်းလမ်းညွှန်ပေးခြင်း။
 
 ---
 
-## 📦 How to Build the Android APK
+## 📱 အသုံးပြုပုံ အဆင့်ဆင့် (How to Use)
 
-1. In the AI Studio top bar, open the **Settings / Export** menu.
-2. Select **"Generate APK / Export Project as ZIP"** or push directly to **GitHub**.
-3. If building locally with Gradle:
-   ```bash
-   gradle :app:assembleRelease
-   ```
-4. Install the generated APK on your Android smartphone or tablet.
+### လိုအပ်ချက်များ:
+1. Master Android Device (OTG Support ပါဝင်သော ဖုန်း)
+2. USB-OTG Adapter သို့မဟုတ် Type-C to Type-C Cable
+3. Target MediaTek Phone (Flash သို့မဟုတ် Unlock ပြုလုပ်မည့်ဖုန်း)
+
+### အသုံးပြုနည်း:
+1. **Connect Cable**: Master ဖုန်းတွင် OTG ချိတ်ပြီး USB ကြိုးကို Target ဖုန်းနှင့် ချိတ်ဆက်ရန် အသင့်ပြင်ပါ။
+2. **Select Brand & Model**: App တွင် မိမိ ပြုလုပ်လိုသော ဖုန်းအမျိုးအစား (ဥပမာ - Xiaomi, Samsung, Oppo, Vivo, Infinix) နှင့် Chipset ကို ရွေးချယ်ပါ။
+3. **Choose Operation**:
+   - **Flash Tab**: Scatter ဖိုင်ရွေးချယ်ပြီး `START FLASHING` ကို နှိပ်ပါ။
+   - **Service Tab**: FRP ဖြုတ်ရန် `Erase FRP` သို့မဟုတ် Bootloader Unlock လုပ်ရန် `Unlock Bootloader` ကို နှိပ်ပါ။
+4. **BROM Mode Connection**:
+   - Target ဖုန်းကို ပါဝါပိတ်ပါ။
+   - **Volume Up + Volume Down** ခလုတ် ၂ ခုလုံးကို ဖိထားပြီး USB ကြိုး ထိုးသွင်းပါ။
+5. **Done**: Tool မှ စက်ကို အလိုအလျောက် သိရှိပြီး ၁၀၀% ပြီးဆုံးသည်အထိ အလိုအလျောက် လုပ်ဆောင်ပေးပါမည်။
 
 ---
 
-## 🤖 GitHub Actions Automated Cloud Build
+## 🏗️ စနစ်တည်ဆောက်ပုံ (Project Structure)
 
-This repository includes a pre-configured, modern GitHub Actions workflow (`.github/workflows/build.yml`):
-- **Android APK Build:** Automatically compiles `assembleDebug` APK with Java 17 Temurin.
-- **ESP32-S3 Firmware Build:** Compiles binary files (`firmware.bin`, `bootloader.bin`, `partitions.bin`) using PlatformIO for ESP32-S3 N16R8.
-- **Automatic Artifacts:** Once pushed to GitHub, go to the **Actions** tab on your GitHub repository to download the ready-to-use `.apk` and `.bin` files directly!
+```
+app/src/main/java/com/example/
+├── MainActivity.kt                      # Main App Entry & WindowInsets
+├── protocol/
+│   ├── TargetPhoneUsbManager.kt        # Direct USB-OTG Driver & Raw Bulk I/O
+│   └── MtkBromProtocolEngine.kt        # MTK BROM Handshake, DAA Bypass & Flash Engine
+├── parser/
+│   ├── ScatterParser.kt                # MediaTek Scatter File Syntax Parser
+│   └── GptParser.kt                    # Live GPT (GUID Partition Table) Storage Reader
+├── storage/
+│   └── BackupStorageManager.kt         # Secure On-Device Firmware & NVRAM Backup
+├── ai/
+│   └── GeminiDiagnosticAdvisor.kt      # AI-Powered Error Troubleshooting
+├── audio/
+│   └── ToolSoundManager.kt             # Professional GSM Tool Sound Engine
+├── ui/
+│   ├── screens/
+│   │   └── UnlockToolFlashScreen.kt    # Main GSM Flasher Dashboard Screen
+│   └── components/                     # Reusable Material 3 UI Components
+└── viewmodel/
+    └── MtkBridgeViewModel.kt           # StateFlow & Protocol Lifecycle Coordinator
+```
 
 ---
 
-## 🚀 Standard Flashing Workflow (Real Hardware)
+## 🛠️ Build & Development
 
-1. Launch **MTK UnlockTool** on your Android device.
-2. Select your desired brand/model (e.g. `Redmi 9A (MT6765)`), load scatter file if needed.
-3. Keep **Auto NV Data Backup** checked (`[✓] IMEI Guard ON`).
-4. Press **START / EXECUTE** on your chosen action (e.g. *Erase FRP* or *Flash Partition*).
-5. The terminal will show: `>>> [WAITING FOR MTK BROM PORT] ⏳ Sniffing Active...`
-6. **Now**, turn off target phone, hold `Volume Up + Volume Down` buttons, and insert the USB-OTG cable into the phone.
-7. The app instantly grabs BROM handshake, runs pre-backup, and completes the operation safely!
+### Requirements:
+- Android Studio Ladybug | 2024.2.1 သို့မဟုတ် နောက်ဆုံးထွက်ဗားရှင်း
+- Minimum SDK: `26` (Android 8.0 Oreo)
+- Target SDK: `34` (Android 14)
+- Language: `Kotlin 2.0+`
+- UI Framework: `Jetpack Compose`
+
+### Build Command:
+```bash
+# Debug APK တည်ဆောက်ရန်
+./gradlew assembleDebug
+
+# Release APK တည်ဆောက်ရန်
+./gradlew assembleRelease
+```
+
+---
+
+## ⚠️ ငြင်းချက် (Disclaimer)
+
+ဤဆော့ဖ်ဝဲလ်သည် ပညာရေးနှင့် တရားဝင် ဖုန်းပြုပြင်ထိန်းသိမ်းမှု (Educational & Legitimate Device Servicing) ရည်ရွယ်ချက်များအတွက်သာ ဖြစ်ပါသည်။ အသုံးပြုသူ၏ လွဲမှားစွာ အသုံးပြုမှုကြောင့် ဖုန်းပျက်စီးခြင်း သို့မဟုတ် Data ပျက်စီးဆုံးရှုံးမှုများအတွက် တာဝန်မယူပါ။ Firmware ရေးသားခြင်း မပြုမီ မူရင်း NVRAM Data များကို အမြဲ Backup ပြုလုပ်ထားရန် အကြံပြုအပ်ပါသည်။
+
+---
+
+## 📄 လိုင်စင် (License)
+Open Source project under the **MIT License**.

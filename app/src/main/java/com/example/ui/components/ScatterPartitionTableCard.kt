@@ -95,19 +95,6 @@ fun ScatterPartitionTableCard(
                         )
                     }
                 }
-
-                OutlinedButton(
-                    onClick = {
-                        // Quick switch to alternate preset (e.g. Helio G85 MT6768)
-                        val nextPreset = if (scatterPlatform == "MT6765") "MT6768" else "MT6765"
-                        val (p, list) = ScatterParser.getDefaultPreset(nextPreset)
-                        viewModel.loadScatterContent("", "preset_${nextPreset.lowercase()}_scatter.txt")
-                    }
-                ) {
-                    Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Preset", fontSize = 12.sp)
-                }
             }
 
             // Partition Table Headers

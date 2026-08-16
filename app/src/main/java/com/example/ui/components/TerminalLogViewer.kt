@@ -125,16 +125,16 @@ fun TerminalLogViewer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 160.dp, max = 280.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .heightIn(min = 200.dp, max = 360.dp)
+                    .clip(RoundedCornerShape(10.dp))
                     .background(TerminalBackground)
-                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(8.dp))
-                    .padding(10.dp)
+                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                    .padding(12.dp)
             ) {
                 if (logs.isEmpty()) {
                     Text(
                         text = "Console ready. No logs generated yet.",
-                        fontSize = 11.sp,
+                        fontSize = 12.sp,
                         color = TerminalTimestamp,
                         fontFamily = FontFamily.Monospace
                     )
@@ -142,7 +142,7 @@ fun TerminalLogViewer(
                     LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         items(logs) { log ->
                             LogRow(log = log)
@@ -157,13 +157,24 @@ fun TerminalLogViewer(
 @Composable
 private fun LogRow(log: TerminalLog) {
     val levelColor = when (log.level) {
-        LogLevel.SUCCESS -> StatusSuccess
-        LogLevel.ERROR -> StatusError
-        LogLevel.WARNING -> StatusWarning
-        LogLevel.AI -> Color(0xFF818CF8)
-        LogLevel.RAW -> Color(0xFF94A3B8)
-        LogLevel.INFO -> TerminalText
+        LogLevel.SUCCESS -> Color(0xFF10B981) // Emerald Green
+        LogLevel.ERROR -> Color(0xFFF87171)   // Bright Coral Red
+        LogLevel.WARNING -> Color(0xFFFBBF24) // Bright Amber
+        LogLevel.AI -> Color(0xFFA78BFA)      // Electric Purple
+        LogLevel.ACCENT -> Color(0xFF38BDF8)  // Neon Cyan / Sky Blue
+        LogLevel.CYAN -> Color(0xFF22D3EE)    // Cyan highlight
+        LogLevel.MAGENTA -> Color(0xFFF472B6) // Rose Pink / Magenta
+        LogLevel.RAW -> Color(0xFF94A3B8)     // Slate Gray
+        LogLevel.INFO -> Color(0xFFF1F5F9)    // Crisp Off-White
     }
+
+    val isHeaderOrBanner = log.isBold || 
+        log.message.startsWith("===") || 
+        log.message.startsWith("---") || 
+        log.message.startsWith(">>>") || 
+        log.message.startsWith("[+]") ||
+        log.level == LogLevel.ACCENT ||
+        log.level == LogLevel.SUCCESS
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -172,16 +183,18 @@ private fun LogRow(log: TerminalLog) {
         Text(
             text = "${log.timestamp} ",
             color = TerminalTimestamp,
-            fontSize = 11.sp,
+            fontSize = 12.5.sp,
+            fontWeight = FontWeight.Medium,
             fontFamily = FontFamily.Monospace,
-            lineHeight = 14.sp
+            lineHeight = 17.sp
         )
         Text(
             text = log.message,
             color = levelColor,
-            fontSize = 11.sp,
+            fontSize = 12.5.sp,
+            fontWeight = if (isHeaderOrBanner) FontWeight.Bold else FontWeight.Normal,
             fontFamily = FontFamily.Monospace,
-            lineHeight = 14.sp
+            lineHeight = 17.sp
         )
     }
 }
