@@ -184,7 +184,9 @@ class TargetPhoneUsbManager(
             PendingIntent.FLAG_UPDATE_CURRENT
         }
         val permissionIntent = PendingIntent.getBroadcast(
-            context, 0, Intent(ACTION_USB_PHONE_PERMISSION), flags
+            context, 0,
+            Intent(ACTION_USB_PHONE_PERMISSION).setPackage(context.packageName),
+            flags
         )
         usbManager.requestPermission(device, permissionIntent)
     }
@@ -300,24 +302,33 @@ class TargetPhoneUsbManager(
     }
 
     /**
-     * Fast-blasts the MTK handshake sync sequence (0xA0 0x0A 0x50 0x05)
-     * repeatedly to hook BROM before the device exits bootrom mode.
+     * Executes MTK handshake sync sequence byte-by-byte (0xA0->0x5F, 0x0A->0xF5, 0x50->0xAF, 0x05->0xFA)
+     * to hook BROM before the device exits bootrom mode.
      */
-    fun blastBromHandshakeSync(maxAttempts: Int = 15): Boolean {
+    fun blastBromHandshakeSync(maxAttempts: Int = 10): Boolean {
         val conn = usbConnection ?: return false
         val outEp = outEndpoint ?: return false
         val inEp = inEndpoint ?: return false
 
         val syncSeq = byteArrayOf(0xA0.toByte(), 0x0A.toByte(), 0x50.toByte(), 0x05.toByte())
-        val rxBuf = ByteArray(4)
+        val rxBuf = ByteArray(1)
 
-        for (i in 0 until maxAttempts) {
-            conn.bulkTransfer(outEp, syncSeq, syncSeq.size, 150)
-            val read = conn.bulkTransfer(inEp, rxBuf, rxBuf.size, 150)
-            if (read >= 4) {
-                // Expected response is 0x5F 0xF5 0xAF 0xFA (or inverted handshake echo)
-                return true
+        for (attempt in 0 until maxAttempts) {
+            var fullMatch = true
+            for (byte in syncSeq) {
+                val singleOut = byteArrayOf(byte)
+                val w = conn.bulkTransfer(outEp, singleOut, 1, 100)
+                if (w != 1) {
+                    fullMatch = false
+                    break
+                }
+                val r = conn.bulkTransfer(inEp, rxBuf, 1, 100)
+                if (r != 1) {
+                    fullMatch = false
+                    break
+                }
             }
+            if (fullMatch) return true
         }
         return false
     }

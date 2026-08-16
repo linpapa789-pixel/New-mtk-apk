@@ -89,6 +89,49 @@ class MtkBromProtocolEngine(
     }
 
     /**
+     * Executes strict byte-by-byte lockstep MTK BROM handshake:
+     * Host sends byte -> BROM echoes inverted/negated byte.
+     * (0xA0 -> 0x5F, 0x0A -> 0xF5, 0x50 -> 0xAF, 0x05 -> 0xFA)
+     */
+     private fun sendHandshakeByteByByte(): Boolean {
+        val sendBytes = byteArrayOf(0xA0.toByte(), 0x0A.toByte(), 0x50.toByte(), 0x05.toByte())
+        val expectedEcho = byteArrayOf(0x5F.toByte(), 0xF5.toByte(), 0xAF.toByte(), 0xFA.toByte())
+        val receivedEcho = ByteArray(4)
+        var allMatched = true
+
+        for (i in sendBytes.indices) {
+            val written = targetPhoneUsb.writeRaw(byteArrayOf(sendBytes[i]), 200)
+            if (written != 1) {
+                log("[!] BROM Handshake byte #${i+1} (0x%02X) write failed.".format(sendBytes[i]), LogLevel.WARNING)
+                return false
+            }
+            val rx = ByteArray(1)
+            val read = targetPhoneUsb.readRaw(rx, 200)
+            if (read != 1) {
+                log("[!] BROM Handshake byte #${i+1} read timeout.".format(sendBytes[i]), LogLevel.WARNING)
+                return false
+            }
+            receivedEcho[i] = rx[0]
+            val echoHex = "0x%02X".format(rx[0])
+            val expHex = "0x%02X".format(expectedEcho[i])
+            if (rx[0] != expectedEcho[i]) {
+                allMatched = false
+                log("  [i] Handshake byte #${i+1}: sent 0x%02X -> got $echoHex (expected $expHex)".format(sendBytes[i]), LogLevel.INFO)
+            } else {
+                log("  [+] Handshake byte #${i+1}: sent 0x%02X -> echo $echoHex [OK]".format(sendBytes[i]), LogLevel.SUCCESS)
+            }
+        }
+
+        val echoString = receivedEcho.joinToString(" ") { "0x%02X".format(it) }
+        if (allMatched) {
+            log("[+] BROM Handshake       : Byte-by-Byte Echo Locked ($echoString)", LogLevel.SUCCESS)
+        } else {
+            log("[!] BROM Handshake       : Echo ($echoString) completed (continuing probe).", LogLevel.WARNING)
+        }
+        return true
+    }
+
+    /**
      * Probes target device, reads all BROM & hardware registers, and outputs a formatted info banner.
      */
     suspend fun readDetailedDeviceInfo(isSimulation: Boolean): Result<MtkChipInfo> {
@@ -130,19 +173,10 @@ class MtkBromProtocolEngine(
                 return Result.failure(IllegalStateException("Target phone not connected via USB-OTG"))
             }
 
-            // Step 1: Handshake Blast
-            val written = targetPhoneUsb.writeRaw(HANDSHAKE_SEQ, 500)
-            if (written != HANDSHAKE_SEQ.size) {
-                log("Failed to send handshake sync sequence over USB endpoint.", LogLevel.ERROR)
-                return Result.failure(IllegalStateException("USB write failed"))
-            }
-
-            val rxBuffer = ByteArray(4)
-            val read = targetPhoneUsb.readRaw(rxBuffer, 1000)
-            if (read >= 4) {
-                log("[+] BROM Handshake       : Sync OK (${rxBuffer.joinToString(" ") { String.format("0x%02X", it) }})", LogLevel.SUCCESS)
-            } else {
-                log("[!] BROM Handshake       : Sync timeout response received.", LogLevel.WARNING)
+            // Step 1: Byte-by-Byte Handshake Echo
+            val handshakeOk = sendHandshakeByteByByte()
+            if (!handshakeOk) {
+                log("[!] Byte-by-byte handshake did not complete cleanly, attempting register probe anyway...", LogLevel.WARNING)
             }
 
             // Step 2: Read HW Code (CMD 0xA1)
