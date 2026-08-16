@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
@@ -243,12 +244,13 @@ fun MtkMainApp(
             }
         }
     ) {
-        // FULL SCREEN without bulky TopAppBar Header
+        // FULL SCREEN with proper Status & Navigation Bar Insets
         Box(
             modifier = modifier
                 .fillMaxSize()
                 .background(Color(0xFF0F172A))
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .testTag("mtk_app_scaffold")
         ) {
             UnlockToolFlashScreen(

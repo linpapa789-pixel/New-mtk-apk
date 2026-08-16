@@ -42,6 +42,22 @@ class TargetPhoneUsbManager(
         const val MTK_PID_PRELOADER = 0x2000 // MTK DA / Preloader USB VCOM Port
         const val MTK_PID_PRELOADER_2 = 0x2001
         const val MTK_PID_CDC = 0x2004
+        const val MTK_PID_DEBUG = 0x2005
+        const val MTK_PID_BOOTROM_GENERIC = 0x0001
+        const val MTK_PID_DA_HIGH_SPEED = 0x0002
+        const val MTK_PID_PRELOADER_ALT = 0x0005
+
+        // Known USB Vendor IDs used by various MTK devices & flashing cables
+        val SUPPORTED_VIDS = setOf(
+            0x0E8D, // MediaTek Inc
+            0x1004, // LG Electronics MTK
+            0x0BB4, // HTC MTK
+            0x2A45, // Meizu MTK
+            0x1782, // Spreadtrum/MTK fallback
+            0x1A86, // CH340 / USB Serial converter (if using OTG bridge)
+            0x10C4, // CP210x Serial (if using testpoint jig)
+            0x0403  // FTDI Serial
+        )
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -122,11 +138,19 @@ class TargetPhoneUsbManager(
     }
 
     fun isMediaTekDevice(device: UsbDevice): Boolean {
-        return device.vendorId == MTK_VID ||
-                device.productId == MTK_PID_BROM ||
-                device.productId == MTK_PID_PRELOADER ||
-                device.productId == MTK_PID_PRELOADER_2 ||
-                device.productId == MTK_PID_CDC
+        if (SUPPORTED_VIDS.contains(device.vendorId)) return true
+        if (device.vendorId == MTK_VID) return true
+        // Also check device class / subclass or interface class for CDC/Communication/Vendor device
+        if (device.deviceClass == UsbConstants.USB_CLASS_COMM || device.deviceClass == UsbConstants.USB_CLASS_VENDOR_SPEC) return true
+        for (i in 0 until device.interfaceCount) {
+            val iface = device.getInterface(i)
+            if (iface.interfaceClass == UsbConstants.USB_CLASS_CDC_DATA ||
+                iface.interfaceClass == UsbConstants.USB_CLASS_COMM ||
+                iface.interfaceClass == UsbConstants.USB_CLASS_VENDOR_SPEC) {
+                return true
+            }
+        }
+        return false
     }
 
     fun requestDevicePermission(device: UsbDevice) {
@@ -153,6 +177,11 @@ class TargetPhoneUsbManager(
             }
         }
 
+        // If no explicit MTK device found by VID, but there is any attached USB device (e.g. OTG plugged), try to use it
+        if (mtkDevice == null && deviceList.isNotEmpty()) {
+            mtkDevice = deviceList.values.firstOrNull()
+        }
+
         if (mtkDevice == null) {
             _phoneState.value = TargetPhoneState.Disconnected
             return@withContext false
@@ -169,7 +198,7 @@ class TargetPhoneUsbManager(
     suspend fun connectDevice(mtkDevice: UsbDevice): Boolean = withContext(Dispatchers.IO) {
         try {
             val connection = usbManager.openDevice(mtkDevice) ?: run {
-                _phoneState.value = TargetPhoneState.Error("Failed to open target MediaTek phone USB port.")
+                _phoneState.value = TargetPhoneState.Error("Failed to open target USB port (OTG connection refused).")
                 return@withContext false
             }
 
@@ -198,9 +227,26 @@ class TargetPhoneUsbManager(
                 }
             }
 
+            // Fallback: if no single interface had both in/out bulk endpoints, check across interfaces or use endpoints
+            if (claimedIface == null || bulkIn == null || bulkOut == null) {
+                for (i in 0 until mtkDevice.interfaceCount) {
+                    val iface = mtkDevice.getInterface(i)
+                    for (j in 0 until iface.endpointCount) {
+                        val ep = iface.getEndpoint(j)
+                        if (ep.direction == UsbConstants.USB_DIR_IN && bulkIn == null) {
+                            bulkIn = ep
+                            if (claimedIface == null) claimedIface = iface
+                        } else if (ep.direction == UsbConstants.USB_DIR_OUT && bulkOut == null) {
+                            bulkOut = ep
+                            if (claimedIface == null) claimedIface = iface
+                        }
+                    }
+                }
+            }
+
             if (claimedIface == null || bulkIn == null || bulkOut == null) {
                 connection.close()
-                _phoneState.value = TargetPhoneState.Error("MediaTek USB endpoints not found.")
+                _phoneState.value = TargetPhoneState.Error("USB Bulk Endpoints not found for ${mtkDevice.productName ?: "Device"}.")
                 return@withContext false
             }
 
@@ -210,13 +256,13 @@ class TargetPhoneUsbManager(
             inEndpoint = bulkIn
             outEndpoint = bulkOut
 
-            val isBrom = (mtkDevice.productId == MTK_PID_BROM) || (mtkDevice.productId == 0x0001)
+            val isBrom = (mtkDevice.productId == MTK_PID_BROM) || (mtkDevice.productId == 0x0001) || (mtkDevice.productId == 0x0003)
             val vidPidStr = String.format("0x%04X:0x%04X", mtkDevice.vendorId, mtkDevice.productId)
-            val modeName = if (isBrom) "BROM Mode (0x0003)" else "Preloader Mode (0x2000)"
+            val modeName = if (isBrom) "BROM Mode (0x0003)" else "Preloader / USB VCOM"
             val rawFd = connection.fileDescriptor
 
             val state = TargetPhoneState.Connected(
-                deviceName = mtkDevice.productName ?: "MediaTek Handset",
+                deviceName = mtkDevice.productName ?: "MediaTek Device",
                 isBromMode = isBrom,
                 vidPid = "$vidPidStr [$modeName]",
                 fileDescriptor = rawFd
