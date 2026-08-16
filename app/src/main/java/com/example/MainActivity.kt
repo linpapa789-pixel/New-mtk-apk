@@ -21,20 +21,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -56,11 +50,7 @@ import androidx.compose.ui.unit.sp
 import com.example.model.AppNavDestination
 import com.example.protocol.TargetPhoneState
 import com.example.ui.components.AiDiagnosticDialog
-import com.example.ui.screens.ConsoleAiScreen
-import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.Esp32BridgeScreen
-import com.example.ui.screens.ScatterFlashScreen
-import com.example.ui.screens.ServiceToolsScreen
 import com.example.ui.screens.UnlockToolFlashScreen
 import com.example.ui.theme.MtkBorderLight
 import com.example.ui.theme.MyApplicationTheme
@@ -89,11 +79,9 @@ fun MtkMainApp(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var currentDestination by remember { mutableStateOf(AppNavDestination.PARTITION_FLASH) }
+    var currentDestination by remember { mutableStateOf(AppNavDestination.UNLOCKTOOL_CONSOLE) }
 
-    val isDryRun by viewModel.isDryRun.collectAsState()
     val aiAnalysis by viewModel.aiAnalysis.collectAsState()
-    val isAiLoading by viewModel.isAiLoading.collectAsState()
     val chipInfo by viewModel.chipInfo.collectAsState()
     val targetPhoneState by viewModel.targetPhoneState.collectAsState()
 
@@ -105,7 +93,7 @@ fun MtkMainApp(
             ModalDrawerSheet(
                 drawerContainerColor = Color.White,
                 drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
-                modifier = Modifier.width(310.dp)
+                modifier = Modifier.width(300.dp)
             ) {
                 // Drawer Header
                 Column(
@@ -115,34 +103,18 @@ fun MtkMainApp(
                         .padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "MTK Flash Tool",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "ESP32-S3 Flash Controller",
-                                fontSize = 11.sp,
-                                color = Color(0xFFBFDBFE)
-                            )
-                        }
-
-                        // Theme Accent & Light mode icons
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { /* Accent picker */ }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.Palette, contentDescription = "Accent Picker", tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = { /* Dark toggle */ }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Default.WbSunny, contentDescription = "Theme Toggle", tint = Color.White, modifier = Modifier.size(18.dp))
-                            }
-                        }
+                    Column {
+                        Text(
+                            text = "MTK UnlockTool",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Hardware BROM & Flashing Engine",
+                            fontSize = 11.sp,
+                            color = Color(0xFFBFDBFE)
+                        )
                     }
 
                     // Device & Bridge Status Pill in Header
@@ -164,25 +136,25 @@ fun MtkMainApp(
                                 fontFamily = FontFamily.Monospace,
                                 color = Color.White
                             )
-                            val isBrom = targetPhoneState is TargetPhoneState.Connected || isDryRun
+                            val isBrom = targetPhoneState is TargetPhoneState.Connected
                             Text(
-                                text = if (isBrom) "BROM Ready" else "Waiting Device",
+                                text = if (isBrom) "BROM Ready" else "Ready",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = if (isBrom) Color(0xFF4ADE80) else Color(0xFFFDE047)
+                                color = if (isBrom) Color(0xFF4ADE80) else Color(0xFFBFDBFE)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Menu items: "Partition Flash", "NV Data Backup/Restore", "Read Chip Info", "Serial/Log Monitor", "DA / Preloader / Scatter Manager", "Settings"
+                // Clean Navigation Menu: UnlockTool Flashing Console & ESP32-S3 Hardware Bridge
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     AppNavDestination.values().forEach { destination ->
                         val isSelected = currentDestination == destination
@@ -196,12 +168,19 @@ fun MtkMainApp(
                                 )
                             },
                             label = {
-                                Text(
-                                    text = destination.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color(0xFF1D4ED8) else Color(0xFF0F172A)
-                                )
+                                Column {
+                                    Text(
+                                        text = destination.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color(0xFF1D4ED8) else Color(0xFF0F172A)
+                                    )
+                                    Text(
+                                        text = destination.subtitle,
+                                        fontSize = 10.sp,
+                                        color = if (isSelected) Color(0xFF3B82F6) else Color(0xFF94A3B8)
+                                    )
+                                }
                             },
                             selected = isSelected,
                             onClick = {
@@ -221,40 +200,15 @@ fun MtkMainApp(
 
                 HorizontalDivider(color = MtkBorderLight)
 
-                // Bottom of drawer: "Privacy Options" / "About" link + Dry Run switch
-                Column(
+                // Bottom of drawer: About dialog button
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Dry-Run Safety Mode", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                            Text(if (isDryRun) "Safe emulation active" else "Real hardware flash", fontSize = 10.sp, color = Color(0xFF64748B))
-                        }
-                        Switch(
-                            checked = isDryRun,
-                            onCheckedChange = { viewModel.toggleDryRun(it) },
-                            modifier = Modifier.size(32.dp),
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF1D4ED8))
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        TextButton(onClick = { showAboutDialog = true }) {
-                            Text("Privacy Options", fontSize = 11.sp, color = Color(0xFF64748B))
-                        }
-                        TextButton(onClick = { showAboutDialog = true }) {
-                            Text("About MTK Tool", fontSize = 11.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
-                        }
+                    TextButton(onClick = { showAboutDialog = true }) {
+                        Text("About MTK Tool Engine", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -270,20 +224,13 @@ fun MtkMainApp(
         ) {
             Crossfade(targetState = currentDestination, label = "screen_transition") { destination ->
                 when (destination) {
-                    AppNavDestination.PARTITION_FLASH -> UnlockToolFlashScreen(
+                    AppNavDestination.UNLOCKTOOL_CONSOLE -> UnlockToolFlashScreen(
                         viewModel = viewModel,
                         onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
-                    AppNavDestination.NV_BACKUP_RESTORE -> ServiceToolsScreen(viewModel = viewModel)
-                    AppNavDestination.READ_CHIP_INFO -> DashboardScreen(
-                        viewModel = viewModel,
-                        onNavigate = {
-                            currentDestination = AppNavDestination.PARTITION_FLASH
-                        }
+                    AppNavDestination.ESP32_BRIDGE -> Esp32BridgeScreen(
+                        viewModel = viewModel
                     )
-                    AppNavDestination.SERIAL_LOG_MONITOR -> ConsoleAiScreen(viewModel = viewModel)
-                    AppNavDestination.DA_SCATTER_MANAGER -> ScatterFlashScreen(viewModel = viewModel)
-                    AppNavDestination.SETTINGS -> Esp32BridgeScreen(viewModel = viewModel)
                 }
             }
         }
@@ -297,16 +244,16 @@ fun MtkMainApp(
         )
     }
 
-    // About & Privacy Dialog
+    // About Dialog
     if (showAboutDialog) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showAboutDialog = false },
             title = { Text("About MTK Flash Bridge Tool", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Version 2.4.0 (Pro GSM Flasher Edition)", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
-                    Text("Universal MediaTek BROM/Preloader Flashing utility with ESP32-S3 Hardware Trigger support (USB-CDC & Wi-Fi SoftAP).", fontSize = 12.sp, color = Color(0xFF475569))
-                    Text("• Auto-Detect Chipset & Scatter Autoloading\n• NVRAM & IMEI Data Dump/Restore Engine\n• Hardware Test-Point Pulse Triggering\n• Offline Dry-Run Simulation Safety", fontSize = 11.sp, color = Color(0xFF334155))
+                    Text("Version 2.5.0 (Pro GSM Flasher Edition)", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
+                    Text("Universal MediaTek BROM / Preloader Flashing and Service Tool with ESP32-S3 Hardware Trigger support (USB-CDC & Wi-Fi SoftAP).", fontSize = 12.sp, color = Color(0xFF475569))
+                    Text("• Auto NV Data Backup (IMEI & Baseband Guard)\n• Scatter Flashing & Partition Wipe Engine\n• Active BROM Sniffing Flow\n• Built-in Gemini AI Flashing Diagnostics", fontSize = 11.sp, color = Color(0xFF334155))
                 }
             },
             confirmButton = {
