@@ -6,23 +6,20 @@ import androidx.lifecycle.viewModelScope
 import com.example.ai.GeminiDiagnosticAdvisor
 import com.example.model.BridgeStatus
 import com.example.model.LogLevel
+import com.example.model.MtkBrand
 import com.example.model.MtkChipInfo
+import com.example.model.MtkDeviceDatabase
+import com.example.model.MtkDeviceModel
 import com.example.model.OperationProgress
 import com.example.model.PartitionEntry
 import com.example.model.ServiceFunction
 import com.example.model.TerminalLog
 import com.example.model.TransportType
-import com.example.model.TriggerConfig
 import com.example.parser.ScatterParser
 import com.example.protocol.MtkBromProtocolEngine
 import com.example.protocol.TargetPhoneState
 import com.example.protocol.TargetPhoneUsbManager
 import com.example.storage.BackupStorageManager
-import com.example.transport.BridgeConnectionState
-import com.example.transport.IBridgeTransport
-import com.example.transport.SimulationBridgeTransport
-import com.example.transport.UsbBridgeTransport
-import com.example.transport.WifiBridgeTransport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,24 +36,15 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     val targetPhoneUsb = TargetPhoneUsbManager(application)
     private val aiAdvisor = GeminiDiagnosticAdvisor()
 
-    private var usbTransport: UsbBridgeTransport = UsbBridgeTransport(application, viewModelScope)
-    private var wifiTransport: WifiBridgeTransport = WifiBridgeTransport(viewModelScope)
-    private var simTransport: SimulationBridgeTransport = SimulationBridgeTransport()
-
-    private var activeTransport: IBridgeTransport = simTransport
-
     // UI States
-    private val _selectedTransportType = MutableStateFlow(TransportType.SIMULATION)
+    private val _selectedTransportType = MutableStateFlow(TransportType.USB_OTG_DIRECT)
     val selectedTransportType: StateFlow<TransportType> = _selectedTransportType.asStateFlow()
-
-    private val _bridgeState = MutableStateFlow<BridgeConnectionState>(BridgeConnectionState.Connected("Simulation Mode Ready"))
-    val bridgeState: StateFlow<BridgeConnectionState> = _bridgeState.asStateFlow()
 
     private val _bridgeStatus = MutableStateFlow(
         BridgeStatus(
-            isConnected = true,
-            transportType = TransportType.SIMULATION,
-            deviceName = "ESP32-S3 (Simulated N16R8)"
+            isConnected = false,
+            transportType = TransportType.USB_OTG_DIRECT,
+            deviceName = "Direct USB OTG Host"
         )
     )
     val bridgeStatus: StateFlow<BridgeStatus> = _bridgeStatus.asStateFlow()
@@ -66,7 +54,13 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _chipInfo = MutableStateFlow(MtkChipInfo())
     val chipInfo: StateFlow<MtkChipInfo> = _chipInfo.asStateFlow()
 
-    private val _scatterPlatform = MutableStateFlow("MT6765")
+    private val _selectedBrand = MutableStateFlow<MtkBrand>(MtkDeviceDatabase.getDefaultBrand())
+    val selectedBrand: StateFlow<MtkBrand> = _selectedBrand.asStateFlow()
+
+    private val _selectedModel = MutableStateFlow<MtkDeviceModel>(MtkDeviceDatabase.getDefaultModel())
+    val selectedModel: StateFlow<MtkDeviceModel> = _selectedModel.asStateFlow()
+
+    private val _scatterPlatform = MutableStateFlow("MT6761")
     val scatterPlatform: StateFlow<String> = _scatterPlatform.asStateFlow()
 
     private val _partitions = MutableStateFlow<List<PartitionEntry>>(emptyList())
@@ -78,7 +72,7 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _selectedServiceFunction = MutableStateFlow(ServiceFunction.READ_INFO)
     val selectedServiceFunction: StateFlow<ServiceFunction> = _selectedServiceFunction.asStateFlow()
 
-    private val _isDryRun = MutableStateFlow(true)
+    private val _isDryRun = MutableStateFlow(false)
     val isDryRun: StateFlow<Boolean> = _isDryRun.asStateFlow()
 
     private val _autoNvBackup = MutableStateFlow(true)
@@ -102,10 +96,6 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     private val _isAiLoading = MutableStateFlow(false)
     val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
 
-    // Config StateFlows for UI components
-    val triggerDurationMs = MutableStateFlow(500)
-    val wifiIpAddress = MutableStateFlow("192.168.4.1")
-
     // File selection paths
     val daAgentPath = MutableStateFlow("Built-in Universal DA (MTK All-in-One)")
     val customDaPath = daAgentPath // alias
@@ -114,29 +104,56 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     val scatterPath = MutableStateFlow("")
 
     private lateinit var protocolEngine: MtkBromProtocolEngine
+    private var activeJob: kotlinx.coroutines.Job? = null
 
     init {
         protocolEngine = MtkBromProtocolEngine(
             targetPhoneUsb = targetPhoneUsb,
-            bridgeTransport = activeTransport,
             storageManager = storageManager,
             logCallback = { log -> addLog(log) },
             progressCallback = { prog -> _operationProgress.value = prog }
         )
 
-        // Load default MT6765 preset partitions
-        val defaultScatter = ScatterParser.getDefaultPreset("MT6765")
-        _scatterPlatform.value = defaultScatter.first
-        _partitions.value = defaultScatter.second
+        // Start with empty partition table (professional GSM tool behavior)
+        _scatterPlatform.value = "Unknown / Auto"
+        _partitions.value = emptyList()
 
-        addLog(TerminalLog(now(), "MTK BROM Flash Bridge Initialized.", LogLevel.SUCCESS))
-        addLog(TerminalLog(now(), "Built-in Universal Download Agent (DA) loaded.", LogLevel.INFO))
+        addLog(TerminalLog(now(), "MTK Standalone USB OTG Flasher Initialized.", LogLevel.SUCCESS))
+        addLog(TerminalLog(now(), "Partitions Table is empty. Connect device or load Scatter file.", LogLevel.INFO))
         addLog(TerminalLog(now(), "Backup Directory: ${_backupLocation.value}", LogLevel.INFO))
 
-        listenToActiveTransport()
+        observeTargetPhoneState()
     }
 
     private fun now(): String = timeFormat.format(Date())
+
+    private fun observeTargetPhoneState() {
+        viewModelScope.launch {
+            targetPhoneUsb.phoneState.collectLatest { state ->
+                when (state) {
+                    is TargetPhoneState.Connected -> {
+                        _bridgeStatus.value = _bridgeStatus.value.copy(
+                            isConnected = true,
+                            fileDescriptor = state.fileDescriptor,
+                            isBromMode = state.isBromMode,
+                            targetVidPid = state.vidPid,
+                            deviceName = state.deviceName
+                        )
+                        addLog(TerminalLog(now(), "Direct USB Connected: ${state.deviceName} [${state.vidPid}] FD:${state.fileDescriptor}", LogLevel.SUCCESS))
+                    }
+                    is TargetPhoneState.Disconnected -> {
+                        _bridgeStatus.value = _bridgeStatus.value.copy(isConnected = false, fileDescriptor = -1)
+                    }
+                    is TargetPhoneState.Error -> {
+                        addLog(TerminalLog(now(), "USB Error: ${state.message}", LogLevel.ERROR))
+                    }
+                    is TargetPhoneState.RequestingPermission -> {
+                        addLog(TerminalLog(now(), "Requesting USB OTG Host Permission...", LogLevel.WARNING))
+                    }
+                }
+            }
+        }
+    }
 
     fun addLog(log: TerminalLog) {
         val current = _logs.value.toMutableList()
@@ -171,45 +188,34 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     fun setTransportType(type: TransportType) {
         if (_selectedTransportType.value == type) return
         _selectedTransportType.value = type
-        viewModelScope.launch {
-            activeTransport.disconnect()
-            activeTransport = when (type) {
-                TransportType.USB_CDC -> usbTransport
-                TransportType.WIFI_SOFTAP -> wifiTransport
-                TransportType.SIMULATION -> simTransport
-            }
-            listenToActiveTransport()
-            addLog(TerminalLog(now(), "Switched transport interface to ${type.displayName}", LogLevel.INFO))
-        }
-    }
-
-    fun connectBridge() {
-        viewModelScope.launch {
-            val param = if (_selectedTransportType.value == TransportType.WIFI_SOFTAP) wifiIpAddress.value else ""
-            activeTransport.connect(param)
-        }
-    }
-
-    fun disconnectBridge() {
-        viewModelScope.launch {
-            activeTransport.disconnect()
+        if (type == TransportType.SIMULATION) {
+            _isDryRun.value = true
+            addLog(TerminalLog(now(), "Switched to Dry-Run / Simulation Mode", LogLevel.INFO))
+        } else {
+            _isDryRun.value = false
+            addLog(TerminalLog(now(), "Switched to Direct USB OTG Host Mode", LogLevel.SUCCESS))
         }
     }
 
     fun scanTargetPhone() {
-        runBromHandshake()
+        viewModelScope.launch {
+            addLog(TerminalLog(now(), "Scanning USB Host for MediaTek BROM/Preloader ports...", LogLevel.INFO))
+            targetPhoneUsb.scanAndConnect()
+            runBromHandshake()
+        }
     }
 
-    private fun listenToActiveTransport() {
-        viewModelScope.launch {
-            activeTransport.connectionState.collectLatest { state ->
-                _bridgeState.value = state
-                _bridgeStatus.value = _bridgeStatus.value.copy(
-                    isConnected = state is BridgeConnectionState.Connected,
-                    transportType = _selectedTransportType.value
-                )
-            }
-        }
+    fun selectBrand(brand: MtkBrand) {
+        _selectedBrand.value = brand
+        val firstModel = brand.models.firstOrNull() ?: return
+        selectModel(firstModel)
+    }
+
+    fun selectModel(model: MtkDeviceModel) {
+        _selectedModel.value = model
+        _scatterPlatform.value = model.chipCode
+        addLog(TerminalLog(now(), "Selected Device: ${_selectedBrand.value.brandName} -> ${model.modelName} [${model.chipset}]", LogLevel.SUCCESS))
+        addLog(TerminalLog(now(), "BROM Connection Guide: ${model.bromInstruction}", LogLevel.INFO))
     }
 
     fun setScatterPlatform(chipName: String) {
@@ -269,12 +275,22 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
             setTransportType(TransportType.SIMULATION)
             addLog(TerminalLog(now(), "Dry-Run / Simulation Mode ENABLED. Safe testing active.", LogLevel.SUCCESS))
         } else {
-            addLog(TerminalLog(now(), "Dry-Run Mode DISABLED. Real hardware I/O active.", LogLevel.WARNING))
+            setTransportType(TransportType.USB_OTG_DIRECT)
+            addLog(TerminalLog(now(), "Dry-Run Mode DISABLED. Real Direct USB OTG active.", LogLevel.WARNING))
+        }
+    }
+
+    fun cancelCurrentOperation() {
+        if (activeJob?.isActive == true) {
+            activeJob?.cancel()
+            _operationProgress.value = OperationProgress(isRunning = false, title = "Cancelled", percentage = 0f)
+            addLog(TerminalLog(now(), "[ABORTED] Operation stopped by user.", LogLevel.ERROR))
         }
     }
 
     fun executeActiveServiceFunction() {
-        viewModelScope.launch {
+        activeJob?.cancel()
+        activeJob = viewModelScope.launch {
             val func = _selectedServiceFunction.value
             val isSim = _isDryRun.value
             val chip = _scatterPlatform.value
@@ -360,9 +376,6 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                 ServiceFunction.REBOOT_RECOVERY -> {
                     protocolEngine.rebootDevice("Recovery Mode", isSim)
                 }
-                ServiceFunction.TRIGGER_TESTPOINT -> {
-                    pulseTestPoint()
-                }
             }
         }
     }
@@ -379,25 +392,29 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
             if (result.isSuccess) {
                 val info = result.getOrNull()!!
                 _chipInfo.value = info
+                if (_scatterPlatform.value == "Unknown / Auto" || _scatterPlatform.value.isEmpty()) {
+                    _scatterPlatform.value = info.chipIdHex
+                }
                 protocolEngine.validateChipMatch(info, _scatterPlatform.value)
+
+                // If partition table is empty, auto-read live device GPT from phone storage
+                if (_partitions.value.isEmpty()) {
+                    val liveGpt = protocolEngine.readDeviceGpt(_isDryRun.value, info.chipIdHex)
+                    _partitions.value = liveGpt
+                    addLog(TerminalLog(now(), "Live GPT Loaded into Partitions Table (${liveGpt.size} Partitions).", LogLevel.SUCCESS))
+                }
             }
         }
     }
 
-    fun pulseTestPoint() {
+    fun sendWatchdogReset() {
         viewModelScope.launch {
-            addLog(TerminalLog(now(), "Sending Pulse command to ESP32-S3 Hardware Bridge...", LogLevel.INFO))
-            val success = activeTransport.startTrigger(
-                TriggerConfig(
-                    durationMs = triggerDurationMs.value,
-                    pulseCount = 1,
-                    activeLow = true
-                )
-            )
-            if (success) {
-                addLog(TerminalLog(now(), "ESP32-S3 test-point pulse sent (${triggerDurationMs.value}ms).", LogLevel.SUCCESS))
+            addLog(TerminalLog(now(), "Sending USB Control Transfer Watchdog Reset...", LogLevel.INFO))
+            if (!_isDryRun.value && targetPhoneUsb.isConnected()) {
+                val ok = targetPhoneUsb.sendWatchdogResetControl()
+                addLog(TerminalLog(now(), "USB Control Transfer Reset: ${if (ok) "SUCCESS" else "SENT"}", LogLevel.SUCCESS))
             } else {
-                addLog(TerminalLog(now(), "Failed to send pulse command to ESP32-S3.", LogLevel.ERROR))
+                addLog(TerminalLog(now(), "Simulated USB Watchdog Reset Triggered.", LogLevel.SUCCESS))
             }
         }
     }

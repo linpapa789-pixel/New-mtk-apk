@@ -15,13 +15,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.example.model.MtkBrand
+import com.example.model.MtkDeviceDatabase
+import com.example.model.MtkDeviceModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -29,13 +34,16 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Usb
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -100,6 +108,8 @@ fun UnlockToolFlashScreen(
     val progress by viewModel.operationProgress.collectAsState()
     val logs by viewModel.logs.collectAsState()
     val chipInfo by viewModel.chipInfo.collectAsState()
+    val selectedBrand by viewModel.selectedBrand.collectAsState()
+    val selectedModel by viewModel.selectedModel.collectAsState()
     val transportType by viewModel.selectedTransportType.collectAsState()
     val targetPhoneState by viewModel.targetPhoneState.collectAsState()
     val scatterPath by viewModel.scatterPath.collectAsState()
@@ -108,15 +118,57 @@ fun UnlockToolFlashScreen(
     val autoNvBackup by viewModel.autoNvBackup.collectAsState()
 
     // Form Dropdown states
-    var selectedChipset by remember { mutableStateOf("Auto (Helio/Dimensity)") }
-    var selectedConnMode by remember { mutableStateOf("USB CDC / BROM") }
-    var selectedDaTimeout by remember { mutableStateOf("10s (Standard)") }
+    var selectedConnMode by remember { mutableStateOf("Direct USB OTG (Host)") }
 
     // Dropdown expansion states
-    var expChipset by remember { mutableStateOf(false) }
+    var expBrand by remember { mutableStateOf(false) }
+    var expModel by remember { mutableStateOf(false) }
     var expConnMode by remember { mutableStateOf(false) }
-    var expTimeout by remember { mutableStateOf(false) }
     var expServiceFunc by remember { mutableStateOf(false) }
+    var showStopConfirmDialog by remember { mutableStateOf(false) }
+
+    // Stop Confirmation Dialog
+    if (showStopConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showStopConfirmDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(Icons.Default.Stop, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(20.dp))
+                    Text("Stop Flashing Process?", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF1F5F9))
+                }
+            },
+            text = {
+                Text(
+                    "Warning: Are you sure you want to stop the active operation?\n\nInterrupting active partition writes (such as preloader, lk, or boot) might risk bricking the target device.",
+                    fontSize = 11.5.sp,
+                    color = Color(0xFFCBD5E1),
+                    lineHeight = 16.sp
+                )
+            },
+            containerColor = Color(0xFF1E293B),
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showStopConfirmDialog = false
+                        viewModel.cancelCurrentOperation()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text("Yes, Stop", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showStopConfirmDialog = false },
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, Color(0xFF475569))
+                ) {
+                    Text("Cancel", fontSize = 11.sp, color = Color(0xFF94A3B8))
+                }
+            }
+        )
+    }
 
     // Log terminal list state for auto-scroll
     val logListState = rememberLazyListState()
@@ -188,113 +240,141 @@ fun UnlockToolFlashScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // =================================================================
-            // 1️⃣ TOP SECTION (Expanded Spacing & Clear Service Tab Dropdown)
+            // 1️⃣ TOP SECTION (Ultra-Compact Sleek Settings & Actions Card)
             // =================================================================
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1.35f),
-                shape = RoundedCornerShape(8.dp),
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(6.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                 border = BorderStroke(1.dp, Color(0xFF334155))
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp, vertical = 5.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                        .fillMaxWidth()
+                        .padding(horizontal = 5.dp, vertical = 3.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.5.dp)
                 ) {
-                    // Row 1: Dropdown Settings (Chipset, Mode, Timeout)
+                    // Row 1: Brand, Model & Mode (No unnecessary SoC dropdown)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         CompactToolDropdown(
-                            label = "Chipset",
-                            selectedText = selectedChipset,
-                            expanded = expChipset,
-                            onExpandedChange = { expChipset = it },
-                            items = listOf(
-                                "Auto (Helio/Dimensity)",
-                                "MT6765 (P35/G35)",
-                                "MT6768 (G80/G85)",
-                                "MT6785 (G90T/G95)",
-                                "MT6833 (Dimensity 700)",
-                                "MT6877 (Dimensity 900)"
-                            ),
-                            onSelect = { selectedChipset = it },
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        CompactToolDropdown(
-                            label = "Conn Mode",
-                            selectedText = selectedConnMode,
-                            expanded = expConnMode,
-                            onExpandedChange = { expConnMode = it },
-                            items = listOf("USB CDC / BROM", "WiFi (ESP32-S3)", "UART Passthrough"),
-                            onSelect = {
-                                selectedConnMode = it
-                                if (it.contains("WiFi")) {
-                                    viewModel.setTransportType(TransportType.WIFI_SOFTAP)
-                                } else {
-                                    viewModel.setTransportType(TransportType.USB_CDC)
+                            label = "Brand",
+                            selectedText = selectedBrand.brandName.substringBefore(" (").substringBefore(" /"),
+                            expanded = expBrand,
+                            onExpandedChange = { expBrand = it },
+                            items = MtkDeviceDatabase.brands.map { it.brandName },
+                            onSelect = { brandName ->
+                                MtkDeviceDatabase.brands.find { it.brandName == brandName }?.let {
+                                    viewModel.selectBrand(it)
                                 }
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1.15f)
                         )
 
                         CompactToolDropdown(
-                            label = "DA Timeout",
-                            selectedText = selectedDaTimeout,
-                            expanded = expTimeout,
-                            onExpandedChange = { expTimeout = it },
-                            items = listOf("3s (Fast)", "5s (Standard)", "10s (Normal)", "30s (Long)"),
-                            onSelect = { selectedDaTimeout = it },
-                            modifier = Modifier.weight(0.9f)
+                            label = "Model",
+                            selectedText = selectedModel.modelName,
+                            expanded = expModel,
+                            onExpandedChange = { expModel = it },
+                            items = selectedBrand.models.map { "${it.modelName} [${it.chipset}]" },
+                            onSelect = { fullStr ->
+                                selectedBrand.models.find { "${it.modelName} [${it.chipset}]" == fullStr }?.let {
+                                    viewModel.selectModel(it)
+                                }
+                            },
+                            modifier = Modifier.weight(1.85f)
+                        )
+
+                        CompactToolDropdown(
+                            label = "Mode",
+                            selectedText = if (selectedConnMode.contains("Simulation")) "Sim" else "OTG",
+                            expanded = expConnMode,
+                            onExpandedChange = { expConnMode = it },
+                            items = listOf("OTG (Direct USB)", "Sim (Simulation)"),
+                            onSelect = {
+                                selectedConnMode = it
+                                if (it.contains("Sim")) {
+                                    viewModel.setTransportType(TransportType.SIMULATION)
+                                } else {
+                                    viewModel.setTransportType(TransportType.USB_OTG_DIRECT)
+                                }
+                            },
+                            modifier = Modifier.weight(0.85f)
                         )
                     }
 
-                    // Row 2: File Selectors (Preloader, DA, Scatter)
+                    // Row 2: Firmware Files (Scatter, Custom DA, Custom Preloader) - Equal 1:1:1 Symmetrical Grid
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CompactFileBadge(
-                            label = "Preloader",
-                            fileName = preloaderPath.ifEmpty { "default.bin" },
-                            isLoaded = preloaderPath.isNotEmpty(),
-                            onPick = { preloaderPickerLauncher.launch("*/*") },
+                        // Scatter / Partition File Button
+                        CompactMiniFileBtn(
+                            label = "Scatter",
+                            fileName = scatterPath.ifEmpty { "Default" },
+                            isLoaded = scatterPath.isNotEmpty() || partitions.isNotEmpty(),
+                            onPick = { scatterPickerLauncher.launch("*/*") },
                             modifier = Modifier.weight(1f)
                         )
 
-                        CompactFileBadge(
-                            label = "DA Agent",
-                            fileName = daPath.ifEmpty { "MTK_DA.bin" },
-                            isLoaded = daPath.isNotEmpty(),
+                        // Custom DA Agent File Button
+                        CompactMiniFileBtn(
+                            label = "Custom DA",
+                            fileName = daPath.ifEmpty { "Built-in DA" },
+                            isLoaded = daPath.isNotEmpty() && !daPath.startsWith("Built-in"),
                             onPick = { daPickerLauncher.launch("*/*") },
                             modifier = Modifier.weight(1f)
                         )
 
-                        CompactFileBadge(
-                            label = "Scatter",
-                            fileName = scatterPath.ifEmpty { "MT6765_scatter.txt" },
-                            isLoaded = scatterPath.isNotEmpty() || partitions.isNotEmpty(),
-                            onPick = { scatterPickerLauncher.launch("*/*") },
-                            modifier = Modifier.weight(1.3f)
+                        // Custom Preloader File Button
+                        CompactMiniFileBtn(
+                            label = "Custom PL",
+                            fileName = preloaderPath.ifEmpty { "Auto PL" },
+                            isLoaded = preloaderPath.isNotEmpty(),
+                            onPick = { preloaderPickerLauncher.launch("*/*") },
+                            modifier = Modifier.weight(1f)
                         )
                     }
 
-                    // Row 3: Service Function & Action Buttons (Generous Width & Readable Height)
+                    // Row 3: Service Task Function & Controls (RST, START / STOP)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Spacious Service Function Selector (No more cramped text)
-                        Box(modifier = Modifier.weight(1.5f)) {
+                        // Service Task Function Selector (Abbreviated Titles)
+                        Box(modifier = Modifier.weight(1.4f)) {
+                            val shortTaskTitle = when (selectedServiceFunction) {
+                                ServiceFunction.READ_INFO -> "Read Info"
+                                ServiceFunction.WRITE_PARTITION -> "Write Part"
+                                ServiceFunction.BATCH_FLASH -> "Batch Flash"
+                                ServiceFunction.READ_PARTITION -> "Read Part"
+                                ServiceFunction.DUMP_ALL_PARTITIONS -> "Dump ROM"
+                                ServiceFunction.READ_PRELOADER -> "Read PL"
+                                ServiceFunction.READ_GPT_SCATTER -> "Read GPT"
+                                ServiceFunction.READ_RPMB -> "Read RPMB"
+                                ServiceFunction.BACKUP_NVRAM -> "Backup NV"
+                                ServiceFunction.RESTORE_NVRAM -> "Restore NV"
+                                ServiceFunction.BYPASS_AUTH -> "Bypass Auth"
+                                ServiceFunction.UNLOCK_BOOTLOADER -> "Unlock BL"
+                                ServiceFunction.LOCK_BOOTLOADER -> "Lock BL"
+                                ServiceFunction.ERASE_FRP -> "Erase FRP"
+                                ServiceFunction.FACTORY_RESET -> "Factory Reset"
+                                ServiceFunction.FORMAT_PARTITION -> "Format"
+                                ServiceFunction.CRASH_TO_BROM -> "Crash BROM"
+                                ServiceFunction.REBOOT_SYSTEM -> "Reboot Sys"
+                                ServiceFunction.REBOOT_FASTBOOT -> "Fastboot"
+                                ServiceFunction.REBOOT_RECOVERY -> "Recovery"
+                            }
                             CompactToolDropdown(
-                                label = "Service Task",
-                                selectedText = selectedServiceFunction.title,
+                                label = "Task",
+                                selectedText = shortTaskTitle,
                                 expanded = expServiceFunc,
                                 onExpandedChange = { expServiceFunc = it },
                                 items = ServiceFunction.values().map { it.title },
@@ -307,48 +387,49 @@ fun UnlockToolFlashScreen(
                             )
                         }
 
-                        // TP Pulse Button
+                        // Watchdog Reset Button
                         OutlinedButton(
-                            onClick = { viewModel.pulseTestPoint() },
-                            shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.height(30.dp),
+                            onClick = { viewModel.sendWatchdogReset() },
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.height(26.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFBBF24)),
                             border = BorderStroke(1.dp, Color(0xFF78350F))
                         ) {
-                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(11.dp))
                             Spacer(modifier = Modifier.width(2.dp))
-                            Text("TP", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("RST", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                         }
 
-                        // Format / Erase Button
+                        // START / STOP Toggle Button (Blue = START, Red = STOP)
                         Button(
                             onClick = {
-                                viewModel.selectServiceFunction(ServiceFunction.FORMAT_PARTITION)
-                                viewModel.executeActiveServiceFunction()
+                                if (progress.isRunning) {
+                                    showStopConfirmDialog = true
+                                } else {
+                                    viewModel.executeActiveServiceFunction()
+                                }
                             },
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(4.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (progress.isRunning) Color(0xFFDC2626) else Color(0xFF2563EB)
+                            ),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp)
+                            modifier = Modifier.height(26.dp).weight(0.95f)
                         ) {
-                            Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                            Icon(
+                                imageVector = if (progress.isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(11.dp),
+                                tint = Color.White
+                            )
                             Spacer(modifier = Modifier.width(2.dp))
-                            Text("Erase", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-
-                        // START FLASH Button (Bright Blue)
-                        Button(
-                            onClick = { viewModel.executeActiveServiceFunction() },
-                            enabled = !progress.isRunning,
-                            shape = RoundedCornerShape(6.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            modifier = Modifier.height(30.dp).weight(0.9f)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Text("START", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(
+                                text = if (progress.isRunning) "STOP" else "START",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
                         }
                     }
                 }
@@ -360,7 +441,7 @@ fun UnlockToolFlashScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1.85f),
+                    .weight(1f),
                 shape = RoundedCornerShape(8.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                 border = BorderStroke(1.dp, Color(0xFF334155))
@@ -399,8 +480,36 @@ fun UnlockToolFlashScreen(
 
                     // Partition Table Scrollable Content Box
                     if (partitions.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No scatter loaded. Tap 'Scatter' above to load firmware.", fontSize = 10.sp, color = Color(0xFF64748B))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.FlashOn,
+                                    contentDescription = null,
+                                    tint = Color(0xFF475569),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Text(
+                                    "No Partitions Loaded",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF94A3B8)
+                                )
+                                Text(
+                                    "1. Connect phone & tap 'START' to read Live GPT\n2. Or tap 'Scatter' to load partition layout from file",
+                                    fontSize = 9.sp,
+                                    color = Color(0xFF64748B),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    lineHeight = 12.sp
+                                )
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -492,7 +601,7 @@ fun UnlockToolFlashScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1.85f),
+                    .weight(1.15f),
                 shape = RoundedCornerShape(8.dp),
                 colors = CardDefaults.cardColors(containerColor = TerminalBackground),
                 border = BorderStroke(1.dp, Color(0xFF334155))
@@ -644,7 +753,7 @@ private fun TopCompactStatusBar(
                 }
 
                 Icon(
-                    imageVector = if (transportType == TransportType.WIFI_SOFTAP) Icons.Default.Wifi else Icons.Default.Usb,
+                    imageVector = Icons.Default.Usb,
                     contentDescription = null,
                     tint = Color(0xFF38BDF8),
                     modifier = Modifier.size(12.dp)
@@ -699,6 +808,49 @@ private fun TopCompactStatusBar(
     }
 }
 
+// Ultra Compact Mini File Badge Button (Clean, balanced 1:1:1 grid item)
+@Composable
+private fun CompactMiniFileBtn(
+    label: String,
+    fileName: String = "",
+    isLoaded: Boolean,
+    onPick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = if (isLoaded) Color(0xFF064E3B) else Color(0xFF0F172A),
+        border = BorderStroke(1.dp, if (isLoaded) Color(0xFF059669) else Color(0xFF334155)),
+        modifier = modifier
+            .height(26.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable { onPick() }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.FolderOpen,
+                contentDescription = null,
+                tint = if (isLoaded) Color(0xFF34D399) else Color(0xFF60A5FA),
+                modifier = Modifier.size(11.dp)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text(
+                text = label,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isLoaded) Color(0xFFA7F3D0) else Color(0xFFE2E8F0),
+                maxLines = 1
+            )
+        }
+    }
+}
+
 // Compact File Badge
 @Composable
 private fun CompactFileBadge(
@@ -709,27 +861,27 @@ private fun CompactFileBadge(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        shape = RoundedCornerShape(6.dp),
+        shape = RoundedCornerShape(5.dp),
         color = if (isLoaded) Color(0xFF064E3B) else Color(0xFF0F172A),
         border = BorderStroke(1.dp, if (isLoaded) Color(0xFF059669) else Color(0xFF334155)),
         modifier = modifier.clickable { onPick() }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 Icons.Default.FolderOpen,
                 contentDescription = null,
                 tint = if (isLoaded) Color(0xFF34D399) else Color(0xFF60A5FA),
-                modifier = Modifier.size(12.dp)
+                modifier = Modifier.size(11.dp)
             )
             Spacer(modifier = Modifier.width(3.dp))
             Column {
                 Text(label, fontSize = 7.5.sp, color = Color(0xFF94A3B8), fontWeight = FontWeight.SemiBold)
                 Text(
                     text = fileName,
-                    fontSize = 9.sp,
+                    fontSize = 8.5.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                     color = if (isLoaded) Color(0xFFA7F3D0) else Color(0xFFE2E8F0),
@@ -741,7 +893,7 @@ private fun CompactFileBadge(
     }
 }
 
-// Compact Tool Dropdown (With Clear Text Visibility & Generous Padding)
+// Compact Tool Dropdown (With Clear Text Visibility & Tight Spacing)
 @Composable
 private fun CompactToolDropdown(
     label: String,
@@ -752,16 +904,18 @@ private fun CompactToolDropdown(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(1.dp)) {
-        Text(label, fontSize = 8.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF94A3B8))
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(0.5.dp)) {
+        Text(label, fontSize = 7.5.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF94A3B8))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(6.dp))
+                .height(26.dp)
+                .clip(RoundedCornerShape(4.dp))
                 .background(Color(0xFF0F172A))
-                .border(1.dp, Color(0xFF334155), RoundedCornerShape(6.dp))
+                .border(1.dp, Color(0xFF334155), RoundedCornerShape(4.dp))
                 .clickable { onExpandedChange(true) }
-                .padding(horizontal = 6.dp, vertical = 5.dp)
+                .padding(horizontal = 4.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -770,24 +924,26 @@ private fun CompactToolDropdown(
             ) {
                 Text(
                     text = selectedText,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFFE2E8F0),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF94A3B8), modifier = Modifier.size(12.dp))
             }
 
             DropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { onExpandedChange(false) },
-                modifier = Modifier.background(Color(0xFF1E293B))
+                modifier = Modifier
+                    .background(Color(0xFF1E293B))
+                    .heightIn(max = 280.dp)
             ) {
                 items.forEach { item ->
                     DropdownMenuItem(
-                        text = { Text(item, fontSize = 11.5.sp, color = Color(0xFFE2E8F0)) },
+                        text = { Text(item, fontSize = 11.sp, color = Color(0xFFE2E8F0)) },
                         onClick = {
                             onSelect(item)
                             onExpandedChange(false)

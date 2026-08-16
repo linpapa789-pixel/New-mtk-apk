@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Power
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Usb
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -38,7 +37,6 @@ import com.example.model.BridgeStatus
 import com.example.model.MtkChipInfo
 import com.example.model.TransportType
 import com.example.protocol.TargetPhoneState
-import com.example.transport.BridgeConnectionState
 import com.example.ui.theme.StatusError
 import com.example.ui.theme.StatusSuccess
 import com.example.ui.theme.StatusWarning
@@ -46,7 +44,6 @@ import com.example.ui.theme.StatusWarning
 @Composable
 fun TopStatusBar(
     bridgeStatus: BridgeStatus,
-    bridgeState: BridgeConnectionState,
     targetPhoneState: TargetPhoneState,
     chipInfo: MtkChipInfo,
     isDryRun: Boolean,
@@ -135,25 +132,15 @@ fun TopStatusBar(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Bridge Status Badge
+                // USB OTG Status Badge
                 StatusPill(
                     icon = when (bridgeStatus.transportType) {
-                        TransportType.USB_CDC -> Icons.Default.Usb
-                        TransportType.WIFI_SOFTAP -> Icons.Default.Wifi
+                        TransportType.USB_OTG_DIRECT -> Icons.Default.Usb
                         TransportType.SIMULATION -> Icons.Default.PlayArrow
                     },
-                    title = "ESP32",
-                    value = when (bridgeState) {
-                        is BridgeConnectionState.Connected -> "Connected"
-                        is BridgeConnectionState.Connecting -> "Connecting"
-                        is BridgeConnectionState.Disconnected -> "Disconnected"
-                        is BridgeConnectionState.Error -> "Error"
-                    },
-                    statusColor = when (bridgeState) {
-                        is BridgeConnectionState.Connected -> StatusSuccess
-                        is BridgeConnectionState.Connecting -> StatusWarning
-                        else -> StatusError
-                    },
+                    title = "USB OTG",
+                    value = if (bridgeStatus.isConnected) "Host Active" else "Scanning...",
+                    statusColor = if (bridgeStatus.isConnected) StatusSuccess else StatusWarning,
                     modifier = Modifier.weight(1f)
                 )
 

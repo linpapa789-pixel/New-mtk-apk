@@ -1,6 +1,6 @@
 {
   "name": "MTK BROM Bridge",
-  "description": "ESP32-S3 hardware bridge and MediaTek BROM/Preloader service tool for partition operations, NVRAM backup/restore, and test-point triggering.",
+  "description": "Standalone Direct Android USB OTG MediaTek BROM/Preloader flashing, partition manager, NVRAM backup/restore, and GSM service tool.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

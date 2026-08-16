@@ -1,10 +1,15 @@
 package com.example
 
+import android.content.Intent
+import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -50,7 +55,6 @@ import androidx.compose.ui.unit.sp
 import com.example.model.AppNavDestination
 import com.example.protocol.TargetPhoneState
 import com.example.ui.components.AiDiagnosticDialog
-import com.example.ui.screens.Esp32BridgeScreen
 import com.example.ui.screens.UnlockToolFlashScreen
 import com.example.ui.theme.MtkBorderLight
 import com.example.ui.theme.MyApplicationTheme
@@ -64,9 +68,34 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleUsbDeviceIntent(intent)
         setContent {
             MyApplicationTheme {
                 MtkMainApp(viewModel = viewModel)
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleUsbDeviceIntent(intent)
+    }
+
+    private fun handleUsbDeviceIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        if (UsbManager.ACTION_USB_DEVICE_ATTACHED == action) {
+            val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            }
+            if (device != null) {
+                lifecycleScope.launchWhenStarted {
+                    viewModel.targetPhoneUsb.connectDevice(device)
+                }
             }
         }
     }
@@ -222,17 +251,10 @@ fun MtkMainApp(
                 .statusBarsPadding()
                 .testTag("mtk_app_scaffold")
         ) {
-            Crossfade(targetState = currentDestination, label = "screen_transition") { destination ->
-                when (destination) {
-                    AppNavDestination.UNLOCKTOOL_CONSOLE -> UnlockToolFlashScreen(
-                        viewModel = viewModel,
-                        onOpenDrawer = { scope.launch { drawerState.open() } }
-                    )
-                    AppNavDestination.ESP32_BRIDGE -> Esp32BridgeScreen(
-                        viewModel = viewModel
-                    )
-                }
-            }
+            UnlockToolFlashScreen(
+                viewModel = viewModel,
+                onOpenDrawer = { scope.launch { drawerState.open() } }
+            )
         }
     }
 
@@ -248,12 +270,12 @@ fun MtkMainApp(
     if (showAboutDialog) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showAboutDialog = false },
-            title = { Text("About MTK Flash Bridge Tool", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text("About MTK Flasher & Service Tool", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Version 2.5.0 (Pro GSM Flasher Edition)", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
-                    Text("Universal MediaTek BROM / Preloader Flashing and Service Tool with ESP32-S3 Hardware Trigger support (USB-CDC & Wi-Fi SoftAP).", fontSize = 12.sp, color = Color(0xFF475569))
-                    Text("• Auto NV Data Backup (IMEI & Baseband Guard)\n• Scatter Flashing & Partition Wipe Engine\n• Active BROM Sniffing Flow\n• Built-in Gemini AI Flashing Diagnostics", fontSize = 11.sp, color = Color(0xFF334155))
+                    Text("Version 3.0.0 (Direct USB OTG Host Edition)", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
+                    Text("Standalone MediaTek BROM / Preloader Flashing and Service Tool utilizing Android Native USB Host API, File Descriptor extraction & USB Control Transfers.", fontSize = 12.sp, color = Color(0xFF475569))
+                    Text("• Direct USB-OTG Host Flashing (PC-less / Microcontroller-less)\n• Auto NV Data Backup (IMEI & Baseband Guard)\n• Scatter Flashing & Partition Wipe Engine\n• USB Control Transfer Watchdog & Auth Bypass\n• Built-in Gemini AI Flashing Diagnostics", fontSize = 11.sp, color = Color(0xFF334155))
                 }
             },
             confirmButton = {
