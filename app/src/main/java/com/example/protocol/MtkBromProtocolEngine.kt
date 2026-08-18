@@ -138,30 +138,22 @@ class MtkBromProtocolEngine(
     }
 
     /**
-     * Probes target device, reads all BROM & hardware registers, and outputs a formatted rich info banner.
+     * Probes target device, reads all BROM & hardware registers over real USB OTG, and outputs formatted info.
      */
     suspend fun readDetailedDeviceInfo(isSimulation: Boolean): Result<MtkChipInfo> {
         log("================================================================", LogLevel.ACCENT)
-        log(">>> [MTK CLIENT] FULL HARDWARE & SECURITY SPECIFICATION <<<", LogLevel.ACCENT)
+        log(">>> [MTK CLIENT] HARDWARE & SECURITY PROBE <<<", LogLevel.ACCENT)
         log("================================================================", LogLevel.ACCENT)
 
         if (isSimulation) {
             delay(100)
-            log("[+] BROM Handshake       : Sync Locked (0x5F 0xF5 0xAF 0xFA)", LogLevel.SUCCESS)
+            log("[DRY-RUN SIMULATION] Notice: Simulation mode active. (Turn off Dry-Run in settings for physical USB)", LogLevel.WARNING)
             delay(60)
-            log("[+] Target Platform      : MediaTek MT6765 (Helio P35 / G25 / G35)", LogLevel.CYAN)
-            log("[+] Hardware Code        : 0x0766 | Subcode: 0x8A00 | HW Ver: 0xCA00 | SW Ver: 0x0000", LogLevel.INFO)
-            log("[+] Silicon MEID         : A0000088910023450000000000000000", LogLevel.MAGENTA)
-            log("[+] Hardware SOC ID      : 4A8F9C12-E7B4-4D88-912A-887B65CC0103", LogLevel.MAGENTA)
-            log("[+] Security Matrix      : SBC [DISABLED] | SLA [DISABLED] | DAA [DISABLED]", LogLevel.SUCCESS)
-            log("[+] Bootloader State     : UNLOCKED (seccfg state: 0x01)", LogLevel.SUCCESS)
-            log("[+] FRP Protection       : CLEAN (Google Account FRP Unlocked)", LogLevel.SUCCESS)
-            log("[+] Storage Type         : eMMC 5.1 / UFS v2.1 (Capacity: 64 GB / 58.24 GiB)", LogLevel.CYAN)
-            log("[+] Storage CID / Vendor : Samsung Electronics (CID: 1501004458364D42)", LogLevel.INFO)
-            log("[+] Device Brand & Model : Xiaomi Redmi 9 / 9A / 9C (cattail/dandelion)", LogLevel.ACCENT)
-            log("[+] Android OS & Patch   : Android 11 / 12 (Security Patch: 2024-03-01)", LogLevel.INFO)
-            log("[+] Firmware Build ID    : RP1A.200720.011 (MIUI-V12.5.4.0.QCDMIXM)", LogLevel.INFO)
-            log("[+] GPT Partition Table  : VALID (64 Partitions Loaded into Table Card)", LogLevel.SUCCESS)
+            log("[SIM] BROM Handshake       : Sync Locked (0x5F 0xF5 0xAF 0xFA)", LogLevel.SUCCESS)
+            log("[SIM] Target Platform      : MediaTek MT6765 (Helio P35 / G25 / G35)", LogLevel.CYAN)
+            log("[SIM] Hardware Code        : 0x0766 | Subcode: 0x8A00 | HW Ver: 0xCA00 | SW Ver: 0x0000", LogLevel.INFO)
+            log("[SIM] Security Matrix      : SBC [DISABLED] | SLA [DISABLED] | DAA [DISABLED]", LogLevel.SUCCESS)
+            log("[SIM] Bootloader State     : UNLOCKED (seccfg state: 0x01)", LogLevel.SUCCESS)
             log("================================================================", LogLevel.ACCENT)
 
             val info = MtkChipInfo(
@@ -172,7 +164,7 @@ class MtkBromProtocolEngine(
                 swVersionHex = "0x0000",
                 secureBootEnabled = false,
                 daLoaded = true,
-                bromState = "BROM_READY"
+                bromState = "BROM_SIMULATION"
             )
             return Result.success(info)
         }
@@ -184,72 +176,115 @@ class MtkBromProtocolEngine(
                 return Result.failure(IllegalStateException("Target phone not connected via USB-OTG"))
             }
 
+            val dev = targetPhoneUsb.currentDevice
+            val devMan = dev?.manufacturerName ?: "MediaTek Inc."
+            val devName = dev?.productName ?: "MTK USB Port"
+            val vidPidStr = if (dev != null) String.format("0x%04X:0x%04X", dev.vendorId, dev.productId) else "0x0E8D:0x0003"
+            log("[+] USB Device Attached  : $devMan $devName [$vidPidStr]", LogLevel.INFO)
+
+            // Drain any lingering bytes on the endpoint before handshake
+            val drainBuf = ByteArray(64)
+            while (targetPhoneUsb.readRaw(drainBuf, 30) > 0) {}
+
             // Step 1: Byte-by-Byte Handshake Echo
             val handshakeOk = sendHandshakeByteByByte()
             if (!handshakeOk) {
-                log("[!] Byte-by-byte handshake did not complete cleanly, attempting register probe anyway...", LogLevel.WARNING)
+                log("[!] BROM Handshake did not receive standard echo. Phone may be in Preloader or already hooked.", LogLevel.WARNING)
             }
 
             // Step 2: Read HW Code (CMD 0xA1)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_HW_CODE), 500)
-            val hwBuf = ByteArray(4)
-            targetPhoneUsb.readRaw(hwBuf, 500)
-            val hwCode = if (hwBuf.size >= 2 && (hwBuf[0].toInt() != 0 || hwBuf[1].toInt() != 0)) {
-                String.format("0x%02X%02X", hwBuf[0], hwBuf[1])
+            val hwBuf = ByteArray(8)
+            val hwLen = targetPhoneUsb.readRaw(hwBuf, 500)
+            val hwCode: String
+            if (hwLen >= 2) {
+                val highByte: Int
+                val lowByte: Int
+                if (hwBuf[0] == 0x00.toByte() && hwLen >= 3) {
+                    highByte = hwBuf[1].toInt() and 0xFF
+                    lowByte = hwBuf[2].toInt() and 0xFF
+                } else {
+                    highByte = hwBuf[0].toInt() and 0xFF
+                    lowByte = hwBuf[1].toInt() and 0xFF
+                }
+                hwCode = String.format("0x%02X%02X", highByte, lowByte)
+                log("[+] Hardware Code Read   : $hwCode (Raw bytes: ${hwBuf.take(hwLen).joinToString(" ") { "%02X".format(it) }})", LogLevel.SUCCESS)
             } else {
-                "0x0766"
+                hwCode = "0x0000"
+                log("[-] Hardware Code Read   : TIMEOUT / NO DATA from BROM.", LogLevel.ERROR)
             }
 
             // Step 3: Read HW Subcode (CMD 0xA2)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_HW_SUB_CODE), 500)
-            val subBuf = ByteArray(4)
-            targetPhoneUsb.readRaw(subBuf, 500)
-            val hwSubCode = if (subBuf.size >= 2) String.format("0x%02X%02X", subBuf[0], subBuf[1]) else "0x8A00"
+            val subBuf = ByteArray(8)
+            val subLen = targetPhoneUsb.readRaw(subBuf, 500)
+            val hwSubCode = if (subLen >= 2) {
+                val h = (if (subBuf[0] == 0x00.toByte() && subLen >= 3) subBuf[1] else subBuf[0]).toInt() and 0xFF
+                val l = (if (subBuf[0] == 0x00.toByte() && subLen >= 3) subBuf[2] else subBuf[1]).toInt() and 0xFF
+                String.format("0x%02X%02X", h, l)
+            } else {
+                "N/A"
+            }
 
             // Step 4: Read HW Version (CMD 0xA3)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_HW_VER), 500)
-            val verBuf = ByteArray(4)
-            targetPhoneUsb.readRaw(verBuf, 500)
-            val hwVer = if (verBuf.size >= 2) String.format("0x%02X%02X", verBuf[0], verBuf[1]) else "0xCA00"
+            val verBuf = ByteArray(8)
+            val verLen = targetPhoneUsb.readRaw(verBuf, 500)
+            val hwVer = if (verLen >= 2) {
+                val h = (if (verBuf[0] == 0x00.toByte() && verLen >= 3) verBuf[1] else verBuf[0]).toInt() and 0xFF
+                val l = (if (verBuf[0] == 0x00.toByte() && verLen >= 3) verBuf[2] else verBuf[1]).toInt() and 0xFF
+                String.format("0x%02X%02X", h, l)
+            } else {
+                "N/A"
+            }
 
             // Step 5: Read SW Version (CMD 0xA4)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_SW_VER), 500)
-            val swBuf = ByteArray(4)
-            targetPhoneUsb.readRaw(swBuf, 500)
-            val swVer = if (swBuf.size >= 2) String.format("0x%02X%02X", swBuf[0], swBuf[1]) else "0x0000"
+            val swBuf = ByteArray(8)
+            val swLen = targetPhoneUsb.readRaw(swBuf, 500)
+            val swVer = if (swLen >= 2) {
+                val h = (if (swBuf[0] == 0x00.toByte() && swLen >= 3) swBuf[1] else swBuf[0]).toInt() and 0xFF
+                val l = (if (swBuf[0] == 0x00.toByte() && swLen >= 3) swBuf[2] else swBuf[1]).toInt() and 0xFF
+                String.format("0x%02X%02X", h, l)
+            } else {
+                "N/A"
+            }
 
             // Step 6: Read Target Config & Security (CMD 0xD8)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_TARGET_CONFIG), 500)
             val targetCfgBuf = ByteArray(8)
-            targetPhoneUsb.readRaw(targetCfgBuf, 500)
-            val isSecBoot = targetCfgBuf.isNotEmpty() && ((targetCfgBuf[0].toInt() and 0x01) != 0)
-            val isSlaActive = targetCfgBuf.size >= 2 && ((targetCfgBuf[1].toInt() and 0x02) != 0)
-            val isDaaActive = targetCfgBuf.size >= 2 && ((targetCfgBuf[1].toInt() and 0x04) != 0)
+            val cfgLen = targetPhoneUsb.readRaw(targetCfgBuf, 500)
+            val isSecBoot = cfgLen >= 1 && ((targetCfgBuf[0].toInt() and 0x01) != 0)
+            val isSlaActive = cfgLen >= 2 && ((targetCfgBuf[1].toInt() and 0x02) != 0)
+            val isDaaActive = cfgLen >= 2 && ((targetCfgBuf[1].toInt() and 0x04) != 0)
 
             // Step 7: Read MEID (CMD 0xE1)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_ME_ID), 500)
-            val meidBuf = ByteArray(16)
+            val meidBuf = ByteArray(32)
             val meidLen = targetPhoneUsb.readRaw(meidBuf, 500)
-            val meidStr = if (meidLen >= 8) meidBuf.take(meidLen).joinToString("") { "%02X".format(it) } else "A0000088910023450000000000000000"
+            val meidStr = if (meidLen >= 8) {
+                meidBuf.take(meidLen).joinToString("") { "%02X".format(it) }
+            } else {
+                "NOT_RETURNED_BY_BROM"
+            }
 
             // Step 8: Read SOC ID (CMD 0xE2)
             targetPhoneUsb.writeRaw(byteArrayOf(CMD_GET_SOC_ID), 500)
             val socIdBuf = ByteArray(32)
             val socIdLen = targetPhoneUsb.readRaw(socIdBuf, 500)
-            val socIdStr = if (socIdLen >= 16) socIdBuf.take(socIdLen).joinToString("") { "%02X".format(it) } else "4A8F9C12-E7B4-4D88-912A-887B65CC0103"
+            val socIdStr = if (socIdLen >= 8) {
+                socIdBuf.take(socIdLen).joinToString("") { "%02X".format(it) }
+            } else {
+                "NOT_RETURNED_BY_BROM"
+            }
 
             val chipName = resolveChipName(hwCode)
-            val guessedBrand = resolveGuessedDevice(hwCode)
 
-            log("[+] Target Platform      : $chipName ($hwCode)", LogLevel.CYAN)
-            log("[+] Hardware Code        : $hwCode | Subcode: $hwSubCode | HW Ver: $hwVer | SW Ver: $swVer", LogLevel.INFO)
+            log("[+] Target Platform      : $chipName", LogLevel.CYAN)
+            log("[+] Hardware Registers   : HW: $hwCode | Sub: $hwSubCode | Ver: $hwVer | SW: $swVer", LogLevel.INFO)
             log("[+] Silicon MEID         : $meidStr", LogLevel.MAGENTA)
             log("[+] Hardware SOC ID      : $socIdStr", LogLevel.MAGENTA)
             log("[+] Security Matrix      : SBC [${if (isSecBoot) "ENABLED" else "DISABLED"}] | SLA [${if (isSlaActive) "ACTIVE" else "DISABLED"}] | DAA [${if (isDaaActive) "ACTIVE" else "DISABLED"}]", if (!isSecBoot) LogLevel.SUCCESS else LogLevel.WARNING)
-            log("[+] Bootloader State     : ${if (isSecBoot) "LOCKED / ENFORCED" else "UNLOCKED (seccfg)"}", LogLevel.SUCCESS)
-            log("[+] Storage Type         : eMMC / UFS (GPT Initialized)", LogLevel.CYAN)
-            log("[+] Device Model Match   : $guessedBrand", LogLevel.ACCENT)
-            log("[+] GPT Partition Table  : VALID (Active in Partitions Manager)", LogLevel.SUCCESS)
             log("================================================================", LogLevel.ACCENT)
 
             val info = MtkChipInfo(
@@ -266,18 +301,6 @@ class MtkBromProtocolEngine(
         } catch (e: Exception) {
             log("BROM Device Info probing error: ${e.message}", LogLevel.ERROR)
             return Result.failure(e)
-        }
-    }
-
-    private fun resolveGuessedDevice(hwCode: String): String {
-        return when (hwCode.lowercase()) {
-            "0x0766" -> "Xiaomi Redmi 9A / 9C / Poco C31 / Oppo A15 / Vivo Y12s"
-            "0x0707" -> "Xiaomi Redmi 9 / Note 9 / Realme Narzo 30A / Infinix Note 10"
-            "0x0816" -> "Xiaomi Redmi Note 8 Pro / Realme 6 / Realme 7 / Narzo 20 Pro"
-            "0x0989" -> "Xiaomi Redmi Note 10 5G / Poco M3 Pro 5G / Realme 8 5G"
-            "0x0986" -> "Oppo Reno 6 5G / Realme 9 5G / Vivo V21 / Infinix Zero Ultra"
-            "0x0996" -> "Xiaomi 11T / Poco F3 GT / Realme GT Neo / Vivo V23 Pro"
-            else -> "Universal MediaTek Android Device"
         }
     }
 
@@ -480,14 +503,39 @@ class MtkBromProtocolEngine(
     }
 
     private fun resolveChipName(hwCode: String): String {
-        return when (hwCode.lowercase()) {
-            "0x0766" -> "MT6765 (Helio P35/G25/G35)"
-            "0x0707" -> "MT6768 (Helio G85/G80)"
-            "0x0816" -> "MT6785 (Helio G90T/G95)"
-            "0x0989" -> "MT6833 (Dimensity 700)"
-            "0x0986" -> "MT6877 (Dimensity 900)"
-            "0x0996" -> "MT6893 (Dimensity 1200)"
-            else -> "MediaTek SoC"
+        val clean = hwCode.trim().lowercase()
+        return when (clean) {
+            "0x0262", "0x262" -> "MT6739 (Quad-Core 4G)"
+            "0x0279", "0x279" -> "MT6757 (Helio P20 / P25)"
+            "0x0321", "0x321" -> "MT6735 (Quad-Core 64-bit)"
+            "0x0326", "0x326" -> "MT6737 (Quad-Core 64-bit)"
+            "0x0335", "0x335" -> "MT6750 / MT6755 (Helio P10)"
+            "0x0562", "0x562" -> "MT6771 (Helio P60 / P70)"
+            "0x0677", "0x677" -> "MT6761 (Helio A22 / A20)"
+            "0x0688", "0x688" -> "MT6779 (Helio P90)"
+            "0x0707", "0x707" -> "MT6768 (Helio G85 / G80)"
+            "0x0766", "0x766" -> "MT6765 / MT6762 (Helio P35 / G25 / G35 / P22)"
+            "0x0788", "0x788" -> "MT6769 (Helio G88 / G91)"
+            "0x0816", "0x816" -> "MT6785 (Helio G90 / G90T / G95)"
+            "0x0817", "0x817" -> "MT6781 (Helio G96 / G99)"
+            "0x0986", "0x986" -> "MT6877 (Dimensity 900 / 920 / 1080 / 7050)"
+            "0x0989", "0x989" -> "MT6833 (Dimensity 700 / 810 / 6020 / 6080)"
+            "0x0996", "0x996" -> "MT6893 / MT6891 (Dimensity 1200 / 1100)"
+            "0x6572" -> "MT6572 (Dual-Core 3G)"
+            "0x6580" -> "MT6580 (Quad-Core 3G)"
+            "0x6582" -> "MT6582 (Quad-Core 3G)"
+            "0x6589" -> "MT6589 (Quad-Core 3G)"
+            "0x6592" -> "MT6592 (Octa-Core 3G)"
+            "0x6735" -> "MT6735"
+            "0x6752" -> "MT6752"
+            "0x6753" -> "MT6753"
+            "0x6853" -> "MT6853 (Dimensity 720 / 800U)"
+            "0x6873" -> "MT6873 (Dimensity 800)"
+            "0x6885" -> "MT6885 (Dimensity 1000L)"
+            "0x6889" -> "MT6889 (Dimensity 1000+)"
+            "0x6983" -> "MT6983 (Dimensity 9000)"
+            "0x6985" -> "MT6985 (Dimensity 9200)"
+            else -> if (clean.startsWith("0x") && clean != "0x0000") "MediaTek SoC ($hwCode)" else "MediaTek SoC"
         }
     }
 

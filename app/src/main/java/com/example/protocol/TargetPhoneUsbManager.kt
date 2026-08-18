@@ -20,6 +20,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class UsbDeviceMode(val label: String, val description: String) {
@@ -88,6 +90,7 @@ class TargetPhoneUsbManager(
     var currentDevice: UsbDevice? = null
         private set
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val connectionMutex = Mutex()
 
     var onDeviceAutoConnectedListener: ((TargetPhoneState.Connected) -> Unit)? = null
 
@@ -326,93 +329,119 @@ class TargetPhoneUsbManager(
     }
 
     suspend fun connectDevice(targetDevice: UsbDevice): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val connection = usbManager.openDevice(targetDevice) ?: run {
-                _phoneState.value = TargetPhoneState.Error("Failed to open target USB port (OTG connection refused).")
-                return@withContext false
-            }
+        connectionMutex.withLock {
+            try {
+                // If already connected to this exact device, avoid duplicate reconnect
+                if (usbConnection != null && currentDevice?.deviceName == targetDevice.deviceName && currentDevice?.vendorId == targetDevice.vendorId && currentDevice?.productId == targetDevice.productId) {
+                    return@withContext true
+                }
 
-            var bulkIn: UsbEndpoint? = null
-            var bulkOut: UsbEndpoint? = null
-            var claimedIface: UsbInterface? = null
+                // Safely close previous connection
+                try {
+                    usbInterface?.let { usbConnection?.releaseInterface(it) }
+                    usbConnection?.close()
+                } catch (_: Exception) {}
+                usbConnection = null
+                usbInterface = null
+                inEndpoint = null
+                outEndpoint = null
+                currentDevice = null
 
-            for (i in 0 until targetDevice.interfaceCount) {
-                val iface = targetDevice.getInterface(i)
-                var tempIn: UsbEndpoint? = null
-                var tempOut: UsbEndpoint? = null
+                val connection = usbManager.openDevice(targetDevice) ?: run {
+                    _phoneState.value = TargetPhoneState.Error("Failed to open target USB port (OTG connection refused).")
+                    return@withContext false
+                }
 
-                for (j in 0 until iface.endpointCount) {
-                    val ep = iface.getEndpoint(j)
-                    if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                        if (ep.direction == UsbConstants.USB_DIR_IN) tempIn = ep
-                        else tempOut = ep
+                var bulkIn: UsbEndpoint? = null
+                var bulkOut: UsbEndpoint? = null
+                var claimedIface: UsbInterface? = null
+
+                for (i in 0 until targetDevice.interfaceCount) {
+                    val iface = targetDevice.getInterface(i)
+                    var tempIn: UsbEndpoint? = null
+                    var tempOut: UsbEndpoint? = null
+
+                    for (j in 0 until iface.endpointCount) {
+                        val ep = iface.getEndpoint(j)
+                        if (ep.type == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                            if (ep.direction == UsbConstants.USB_DIR_IN) tempIn = ep
+                            else tempOut = ep
+                        }
+                    }
+
+                    if (tempIn != null && tempOut != null) {
+                        claimedIface = iface
+                        bulkIn = tempIn
+                        bulkOut = tempOut
+                        break
                     }
                 }
 
-                if (tempIn != null && tempOut != null) {
-                    claimedIface = iface
-                    bulkIn = tempIn
-                    bulkOut = tempOut
-                    break
-                }
-            }
-
-            // Fallback: search across interfaces
-            if (claimedIface == null || bulkIn == null || bulkOut == null) {
-                for (i in 0 until targetDevice.interfaceCount) {
-                    val iface = targetDevice.getInterface(i)
-                    for (j in 0 until iface.endpointCount) {
-                        val ep = iface.getEndpoint(j)
-                        if (ep.direction == UsbConstants.USB_DIR_IN && bulkIn == null) {
-                            bulkIn = ep
-                            if (claimedIface == null) claimedIface = iface
-                        } else if (ep.direction == UsbConstants.USB_DIR_OUT && bulkOut == null) {
-                            bulkOut = ep
-                            if (claimedIface == null) claimedIface = iface
+                // Fallback: search across interfaces
+                if (claimedIface == null || bulkIn == null || bulkOut == null) {
+                    for (i in 0 until targetDevice.interfaceCount) {
+                        val iface = targetDevice.getInterface(i)
+                        for (j in 0 until iface.endpointCount) {
+                            val ep = iface.getEndpoint(j)
+                            if (ep.direction == UsbConstants.USB_DIR_IN && bulkIn == null) {
+                                bulkIn = ep
+                                if (claimedIface == null) claimedIface = iface
+                            } else if (ep.direction == UsbConstants.USB_DIR_OUT && bulkOut == null) {
+                                bulkOut = ep
+                                if (claimedIface == null) claimedIface = iface
+                            }
                         }
                     }
                 }
-            }
 
-            if (claimedIface == null || bulkIn == null || bulkOut == null) {
-                connection.close()
+                if (claimedIface == null || bulkIn == null || bulkOut == null) {
+                    try {
+                        connection.close()
+                    } catch (_: Exception) {}
+                    val mode = detectDeviceMode(targetDevice)
+                    val vidPidStr = String.format("0x%04X:0x%04X", targetDevice.vendorId, targetDevice.productId)
+                    _phoneState.value = TargetPhoneState.Connected(
+                        deviceName = targetDevice.productName ?: "USB Device",
+                        mode = mode,
+                        isBromMode = (mode == UsbDeviceMode.BROM),
+                        vidPid = "$vidPidStr [${mode.label}]",
+                        fileDescriptor = -1
+                    )
+                    return@withContext true
+                }
+
+                try {
+                    connection.claimInterface(claimedIface, true)
+                } catch (e: Exception) {
+                    // Ignore or log if claim fails
+                }
+                usbConnection = connection
+                usbInterface = claimedIface
+                inEndpoint = bulkIn
+                outEndpoint = bulkOut
+                currentDevice = targetDevice
+
                 val mode = detectDeviceMode(targetDevice)
+                val isBrom = (mode == UsbDeviceMode.BROM)
                 val vidPidStr = String.format("0x%04X:0x%04X", targetDevice.vendorId, targetDevice.productId)
-                _phoneState.value = TargetPhoneState.Connected(
-                    deviceName = targetDevice.productName ?: "USB Device",
+                val rawFd = connection.fileDescriptor
+
+                val state = TargetPhoneState.Connected(
+                    deviceName = targetDevice.productName ?: "MediaTek Device",
                     mode = mode,
-                    isBromMode = (mode == UsbDeviceMode.BROM),
+                    isBromMode = isBrom,
                     vidPid = "$vidPidStr [${mode.label}]",
-                    fileDescriptor = -1
+                    fileDescriptor = rawFd
                 )
+                _phoneState.value = state
+                try {
+                    onDeviceAutoConnectedListener?.invoke(state)
+                } catch (_: Exception) {}
                 return@withContext true
+            } catch (e: Exception) {
+                _phoneState.value = TargetPhoneState.Error("Target USB Error: ${e.message}")
+                return@withContext false
             }
-
-            connection.claimInterface(claimedIface, true)
-            usbConnection = connection
-            usbInterface = claimedIface
-            inEndpoint = bulkIn
-            outEndpoint = bulkOut
-            currentDevice = targetDevice
-
-            val mode = detectDeviceMode(targetDevice)
-            val isBrom = (mode == UsbDeviceMode.BROM)
-            val vidPidStr = String.format("0x%04X:0x%04X", targetDevice.vendorId, targetDevice.productId)
-            val rawFd = connection.fileDescriptor
-
-            val state = TargetPhoneState.Connected(
-                deviceName = targetDevice.productName ?: "MediaTek Device",
-                mode = mode,
-                isBromMode = isBrom,
-                vidPid = "$vidPidStr [${mode.label}]",
-                fileDescriptor = rawFd
-            )
-            _phoneState.value = state
-            onDeviceAutoConnectedListener?.invoke(state)
-            return@withContext true
-        } catch (e: Exception) {
-            _phoneState.value = TargetPhoneState.Error("Target USB Error: ${e.message}")
-            return@withContext false
         }
     }
 

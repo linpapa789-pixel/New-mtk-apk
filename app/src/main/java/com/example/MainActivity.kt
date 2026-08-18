@@ -93,8 +93,10 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
             }
             if (device != null) {
-                lifecycleScope.launchWhenStarted {
-                    viewModel.targetPhoneUsb.connectDevice(device)
+                lifecycleScope.launch {
+                    try {
+                        viewModel.targetPhoneUsb.connectDevice(device)
+                    } catch (_: Exception) {}
                 }
             }
         }
