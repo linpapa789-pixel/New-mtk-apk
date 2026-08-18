@@ -55,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.model.AppNavDestination
 import com.example.protocol.TargetPhoneState
-import com.example.ui.components.AiDiagnosticDialog
 import com.example.ui.screens.UnlockToolFlashScreen
 import com.example.ui.theme.MtkBorderLight
 import com.example.ui.theme.MyApplicationTheme
@@ -111,7 +110,6 @@ fun MtkMainApp(
     val scope = rememberCoroutineScope()
     val currentDestination by viewModel.currentDestination.collectAsState()
 
-    val aiAnalysis by viewModel.aiAnalysis.collectAsState()
     val chipInfo by viewModel.chipInfo.collectAsState()
     val targetPhoneState by viewModel.targetPhoneState.collectAsState()
 
@@ -260,14 +258,6 @@ fun MtkMainApp(
         }
     }
 
-    // AI Diagnostics Modal
-    aiAnalysis?.let { analysisText ->
-        AiDiagnosticDialog(
-            analysisText = analysisText,
-            onDismiss = { viewModel.dismissAiSheet() }
-        )
-    }
-
     // About Dialog
     if (showAboutDialog) {
         androidx.compose.material3.AlertDialog(
@@ -277,7 +267,7 @@ fun MtkMainApp(
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Version 3.0.0 (Direct USB OTG Host Edition)", fontSize = 12.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold)
                     Text("Standalone MediaTek BROM / Preloader Flashing and Service Tool utilizing Android Native USB Host API, File Descriptor extraction & USB Control Transfers.", fontSize = 12.sp, color = Color(0xFF475569))
-                    Text("• Direct USB-OTG Host Flashing (PC-less / Microcontroller-less)\n• Auto NV Data Backup (IMEI & Baseband Guard)\n• Scatter Flashing & Partition Wipe Engine\n• USB Control Transfer Watchdog & Auth Bypass\n• Built-in Gemini AI Flashing Diagnostics", fontSize = 11.sp, color = Color(0xFF334155))
+                    Text("• Direct USB-OTG Host Flashing (PC-less / Microcontroller-less)\n• Auto NV Data Backup (IMEI & Baseband Guard)\n• Scatter Flashing & Partition Wipe Engine\n• USB Control Transfer Watchdog & Auth Bypass\n• Fastboot & ADB Standalone Protocols", fontSize = 11.sp, color = Color(0xFF334155))
                 }
             },
             confirmButton = {

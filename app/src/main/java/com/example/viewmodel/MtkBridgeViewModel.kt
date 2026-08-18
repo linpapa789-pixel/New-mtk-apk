@@ -3,7 +3,6 @@ package com.example.viewmodel
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.ai.GeminiDiagnosticAdvisor
 import com.example.model.AppNavDestination
 import com.example.model.BackupMode
 import com.example.model.BridgeStatus
@@ -37,7 +36,6 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
     val storageManager = BackupStorageManager(application)
     val targetPhoneUsb = TargetPhoneUsbManager(application)
-    private val aiAdvisor = GeminiDiagnosticAdvisor()
 
     // UI States
     private val _selectedTransportType = MutableStateFlow(TransportType.USB_OTG_DIRECT)
@@ -101,12 +99,6 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _logs = MutableStateFlow<List<TerminalLog>>(emptyList())
     val logs: StateFlow<List<TerminalLog>> = _logs.asStateFlow()
-
-    private val _aiAnalysis = MutableStateFlow<String?>(null)
-    val aiAnalysis: StateFlow<String?> = _aiAnalysis.asStateFlow()
-
-    private val _isAiLoading = MutableStateFlow(false)
-    val isAiLoading: StateFlow<Boolean> = _isAiLoading.asStateFlow()
 
     // File selection paths
     val daAgentPath = MutableStateFlow("Built-in Universal DA (MTK All-in-One)")
@@ -322,6 +314,27 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
     fun setBackupMode(mode: BackupMode) {
         _backupMode.value = mode
         addLog(TerminalLog(now(), "Selected Backup Mode: ${mode.title} (${mode.description})", LogLevel.INFO))
+
+        // Update partition table checkboxes to match the selected backup mode
+        val currentParts = _partitions.value
+        if (currentParts.isNotEmpty()) {
+            val updated = when (mode) {
+                BackupMode.FULL_FIRMWARE -> currentParts.map { it.copy(isSelectedForFlashing = true) }
+                BackupMode.STABLE_FIRMWARE -> {
+                    val stableNames = setOf(
+                        "preloader", "boot", "dtbo", "vbmeta", "vbmeta_system", "vbmeta_vendor",
+                        "recovery", "lk", "lk2", "spmfw", "mcupmfw", "md1img", "super", "cust", "metadata"
+                    )
+                    currentParts.map { it.copy(isSelectedForFlashing = it.partitionName.lowercase() in stableNames) }
+                }
+                BackupMode.NV_DATA -> {
+                    val nvNames = setOf("nvram", "nvdata", "protect1", "protect2", "secro", "nvcfg", "proinfo", "persist")
+                    currentParts.map { it.copy(isSelectedForFlashing = it.partitionName.lowercase() in nvNames) }
+                }
+                BackupMode.CUSTOM_PARTITIONS -> currentParts
+            }
+            _partitions.value = updated
+        }
     }
 
     fun toggleFlashReadNvData(enabled: Boolean) {
@@ -422,7 +435,7 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
         activeJob = viewModelScope.launch {
             val isSim = _isDryRun.value
             val chip = _scatterPlatform.value
-            val parts = _partitions.value
+            var parts = _partitions.value
             val mode = _backupMode.value
             val autoReboot = _autoReboot.value
 
@@ -437,6 +450,17 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
             addLog(TerminalLog(now(), "Initiating Backup Session: ${mode.title} for ${_selectedBrand.value.brandName} [${_selectedModel.value.modelName}]", LogLevel.INFO))
 
             try {
+                // AUTO-LOAD GPT if partitions table is currently empty
+                if (parts.isEmpty()) {
+                    addLog(TerminalLog(now(), "Partitions list empty. Reading live device GPT storage table...", LogLevel.INFO))
+                    val liveGpt = protocolEngine.readDeviceGpt(isSim, chip)
+                    if (liveGpt.isNotEmpty()) {
+                        _partitions.value = liveGpt
+                        parts = liveGpt
+                        addLog(TerminalLog(now(), "Live Storage GPT Loaded (${liveGpt.size} Partitions).", LogLevel.SUCCESS))
+                    }
+                }
+
                 when (mode) {
                     BackupMode.FULL_FIRMWARE -> {
                         protocolEngine.dumpAllPartitions(parts, isSim)
@@ -448,7 +472,13 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                         protocolEngine.backupNvram(chip, parts, isSim)
                     }
                     BackupMode.CUSTOM_PARTITIONS -> {
-                        protocolEngine.dumpCustomPartitions(parts, isSim)
+                        val selected = parts.filter { it.isSelectedForFlashing }
+                        if (selected.isEmpty()) {
+                            addLog(TerminalLog(now(), "No partitions selected for custom backup. Dumping all available partitions as fallback.", LogLevel.WARNING))
+                            protocolEngine.dumpAllPartitions(parts, isSim)
+                        } else {
+                            protocolEngine.dumpCustomPartitions(parts, isSim)
+                        }
                     }
                 }
 
@@ -530,7 +560,21 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 when (func) {
                     ServiceFunction.READ_INFO -> {
-                        runBromHandshake()
+                        val result = protocolEngine.executeBromHandshake(isSim)
+                        if (result.isSuccess) {
+                            val info = result.getOrNull()!!
+                            _chipInfo.value = info
+                            if (_scatterPlatform.value == "Unknown / Auto" || _scatterPlatform.value.isEmpty()) {
+                                _scatterPlatform.value = info.chipIdHex
+                            }
+                            protocolEngine.validateChipMatch(info, _scatterPlatform.value)
+
+                            val liveGpt = protocolEngine.readDeviceGpt(isSim, info.chipIdHex)
+                            if (liveGpt.isNotEmpty()) {
+                                _partitions.value = liveGpt
+                                addLog(TerminalLog(now(), "Live Storage GPT Loaded into Partitions Table (${liveGpt.size} Partitions).", LogLevel.SUCCESS))
+                            }
+                        }
                     }
                     ServiceFunction.WRITE_PARTITION -> {
                         val part = parts.getOrNull(_selectedPartitionIndex.value)
@@ -561,7 +605,11 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                         protocolEngine.readPreloader(isSim)
                     }
                     ServiceFunction.READ_GPT_SCATTER -> {
-                        protocolEngine.readGptAndGenerateScatter(chip, parts, isSim)
+                        val liveGpt = if (parts.isEmpty()) protocolEngine.readDeviceGpt(isSim, chip) else parts
+                        if (liveGpt.isNotEmpty() && parts.isEmpty()) {
+                            _partitions.value = liveGpt
+                        }
+                        protocolEngine.readGptAndGenerateScatter(chip, if (liveGpt.isNotEmpty()) liveGpt else parts, isSim)
                     }
                     ServiceFunction.READ_RPMB -> {
                         protocolEngine.readRpmb(isSim)
@@ -571,10 +619,10 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     ServiceFunction.RESTORE_NVRAM -> {
                         addLog(TerminalLog(now(), "Restoring saved NV calibration archive...", LogLevel.INFO))
-                        val nvPart = parts.find { it.partitionName.lowercase() == "nvdata" } ?: parts.getOrNull(2)
-                        if (nvPart != null) {
-                            protocolEngine.writePartition(nvPart, null, isSim, autoNvBackup = false, autoReboot = autoReboot)
-                        }
+                        val nvPart = parts.find { it.partitionName.lowercase() == "nvdata" }
+                            ?: parts.getOrNull(2)
+                            ?: PartitionEntry(0, "nvdata", "nvdata.bin", "0x0", "0x0", "0x2000000", 33554432, "EMMC_USER", true, true)
+                        protocolEngine.writePartition(nvPart, null, isSim, autoNvBackup = false, autoReboot = autoReboot)
                     }
                     ServiceFunction.BYPASS_AUTH -> {
                         protocolEngine.bypassAuth(isSim)
@@ -854,37 +902,7 @@ class MtkBridgeViewModel(application: Application) : AndroidViewModel(applicatio
         runFastbootCommand("Reboot to ${mode.uppercase()}", cmd)
     }
 
-    fun requestAiDiagnosis() {
-        viewModelScope.launch {
-            _isAiLoading.value = true
-            addLog(TerminalLog(now(), "Requesting Gemini AI Diagnostic Analysis...", LogLevel.INFO))
-            val recentLogs = _logs.value.takeLast(20).joinToString("\n") { "[${it.timestamp}] ${it.message}" }
-            val selectedPart = _partitions.value.getOrNull(_selectedPartitionIndex.value)?.partitionName ?: "nvram"
-            val diagnosis = aiAdvisor.analyzeMtkLogsAndSuggestFix(
-                chipInfo = _chipInfo.value.chipIdHex,
-                scatterPlatform = _scatterPlatform.value,
-                recentLogs = recentLogs,
-                selectedPartition = selectedPart
-            )
-            _aiAnalysis.value = diagnosis
-            _isAiLoading.value = false
-            addLog(TerminalLog(now(), "Gemini AI Diagnosis received.", LogLevel.AI))
-        }
-    }
-
-    fun requestAiDiagnostics() {
-        requestAiDiagnosis()
-    }
-
-    fun requestAiLogAnalysis() {
-        requestAiDiagnosis()
-    }
-
     fun toggleAllPartitions(selectAll: Boolean) {
         selectAllPartitions(selectAll)
-    }
-
-    fun dismissAiSheet() {
-        _aiAnalysis.value = null
     }
 }

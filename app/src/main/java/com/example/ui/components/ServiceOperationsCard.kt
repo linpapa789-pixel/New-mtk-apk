@@ -75,7 +75,6 @@ fun ServiceOperationsCard(
     val selectedPartIndex by viewModel.selectedPartitionIndex.collectAsState()
     val selectedPartition = partitions.getOrNull(selectedPartIndex)
     val autoNvBackup by viewModel.autoNvBackup.collectAsState()
-    val isAiLoading by viewModel.isAiLoading.collectAsState()
 
     var showWriteConfirmationDialog by remember { mutableStateOf(false) }
 
@@ -111,22 +110,6 @@ fun ServiceOperationsCard(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                }
-
-                // AI Diagnostics Button
-                Button(
-                    onClick = { viewModel.requestAiDiagnostics() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1)),
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.height(34.dp)
-                ) {
-                    if (isAiLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
-                    } else {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color.White)
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("AI Advisor", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
 
