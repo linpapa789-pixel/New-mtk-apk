@@ -467,7 +467,9 @@ class TargetPhoneUsbManager(
                     break
                 }
                 val r = conn.bulkTransfer(inEp, rxBuf, 1, 100)
-                if (r != 1) {
+                val expectedEcho = ((byte.toInt() xor 0xFF) and 0xFF)
+                val actualEcho = rxBuf[0].toInt() and 0xFF
+                if (r != 1 || actualEcho != expectedEcho) {
                     fullMatch = false
                     break
                 }
@@ -481,16 +483,63 @@ class TargetPhoneUsbManager(
         return usbConnection?.fileDescriptor ?: -1
     }
 
+    /**
+     * Writes raw byte array to USB target with chunked transfer protection (max 16KB chunks).
+     */
     fun writeRaw(bytes: ByteArray, timeoutMs: Int = 1000): Int {
         val conn = usbConnection ?: return -1
         val ep = outEndpoint ?: return -1
-        return conn.bulkTransfer(ep, bytes, bytes.size, timeoutMs)
+
+        if (bytes.size <= 16384) {
+            return conn.bulkTransfer(ep, bytes, bytes.size, timeoutMs)
+        }
+
+        var totalWritten = 0
+        val chunkSize = 16384
+        var offset = 0
+        while (offset < bytes.size) {
+            val length = minOf(chunkSize, bytes.size - offset)
+            val chunk = ByteArray(length)
+            System.arraycopy(bytes, offset, chunk, 0, length)
+            val written = conn.bulkTransfer(ep, chunk, length, timeoutMs)
+            if (written < 0) return if (totalWritten > 0) totalWritten else written
+            totalWritten += written
+            offset += written
+            if (written < length) break
+        }
+        return totalWritten
     }
 
+    /**
+     * Reads raw byte array from USB target with multi-packet aggregation.
+     */
     fun readRaw(buffer: ByteArray, timeoutMs: Int = 1000): Int {
         val conn = usbConnection ?: return -1
         val ep = inEndpoint ?: return -1
-        return conn.bulkTransfer(ep, buffer, buffer.size, timeoutMs)
+
+        if (buffer.size <= 16384) {
+            return conn.bulkTransfer(ep, buffer, buffer.size, timeoutMs)
+        }
+
+        var totalRead = 0
+        val chunkSize = 16384
+        val temp = ByteArray(chunkSize)
+        val startTime = System.currentTimeMillis()
+
+        while (totalRead < buffer.size) {
+            val remaining = buffer.size - totalRead
+            val toRead = minOf(chunkSize, remaining)
+            val elapsed = (System.currentTimeMillis() - startTime).toInt()
+            val remainingTimeout = maxOf(50, timeoutMs - elapsed)
+            if (remainingTimeout <= 0) break
+
+            val read = conn.bulkTransfer(ep, temp, toRead, remainingTimeout)
+            if (read < 0) return if (totalRead > 0) totalRead else read
+            if (read == 0) break
+            System.arraycopy(temp, 0, buffer, totalRead, read)
+            totalRead += read
+        }
+        return totalRead
     }
 
     fun controlTransfer(

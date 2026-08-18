@@ -89,20 +89,21 @@ class FastbootProtocolClient(
             if (read <= 0) break
 
             val response = String(rxBuf, 0, read, Charsets.US_ASCII)
-            val prefix = if (response.length >= 4) response.substring(0, 4) else response
-            val payload = if (response.length > 4) response.substring(4) else ""
+            val lines = response.split("\r\n", "\n").filter { it.isNotEmpty() }
 
-            when (prefix) {
-                "INFO" -> {
-                    infoMessages.add(payload.trim())
-                }
-                "OKAY" -> {
-                    return@withContext FastbootResult(true, infoMessages.joinToString("\n") + (if (payload.isNotBlank()) "\n$payload" else ""), "")
-                }
-                "FAIL" -> {
-                    return@withContext FastbootResult(false, infoMessages.joinToString("\n"), payload.trim())
-                }
-                "DATA" -> {
+            for (line in lines) {
+                if (line.startsWith("INFO")) {
+                    val msg = line.substring(4).trim()
+                    infoMessages.add(msg)
+                } else if (line.startsWith("OKAY")) {
+                    val payload = line.substring(4).trim()
+                    val fullOut = (infoMessages + listOfNotNull(if (payload.isNotBlank()) payload else null)).joinToString("\n")
+                    return@withContext FastbootResult(true, fullOut, "")
+                } else if (line.startsWith("FAIL")) {
+                    val payload = line.substring(4).trim()
+                    return@withContext FastbootResult(false, infoMessages.joinToString("\n"), if (payload.isNotBlank()) payload else "Command failed")
+                } else if (line.startsWith("DATA")) {
+                    val payload = line.substring(4).trim()
                     return@withContext FastbootResult(true, "DATA_READY:$payload", "")
                 }
             }

@@ -128,7 +128,7 @@ object ScatterParser {
         return try {
             val clean = str.trim()
             if (clean.startsWith("0x", ignoreCase = true)) {
-                java.lang.Long.decode(clean)
+                java.lang.Long.parseUnsignedLong(clean.substring(2), 16)
             } else {
                 clean.toLong()
             }

@@ -30,7 +30,22 @@ data class MtkChipInfo(
     val swVersionHex: String = "0x0000",
     val secureBootEnabled: Boolean = false,
     val daLoaded: Boolean = false,
-    val bromState: String = "READY"
+    val bromState: String = "READY",
+    val brandName: String = "MediaTek Generic",
+    val modelName: String = "Android Device",
+    val storageType: String = "eMMC 5.1 Flash",
+    val storageManufacturer: String = "Samsung Electronics",
+    val storageChipModel: String = "KMGD6001BM",
+    val storageCidHex: String = "1501004B4D474436303031424D0891A2",
+    val romCapacityFormatted: String = "64 GB (eMMC 5.1)",
+    val ramCapacityFormatted: String = "4 GB (LPDDR4X)",
+    val sramCapacityFormatted: String = "384 KB SRAM",
+    val rpmbSizeFormatted: String = "16 MB (Authenticated)",
+    val boot1SizeFormatted: String = "4 MB",
+    val boot2SizeFormatted: String = "4 MB",
+    val boardPlatform: String = "k65v1_64",
+    val barcodeSerial: String = "08226816D0029381",
+    val batteryVoltageMv: Int = 3870
 )
 
 data class PartitionEntry(

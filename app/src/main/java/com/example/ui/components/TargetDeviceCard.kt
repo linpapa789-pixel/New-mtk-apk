@@ -78,7 +78,7 @@ fun TargetDeviceCard(
                 }
             }
 
-            // Chip Info Table
+            // Chip & Storage Info Table
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -87,11 +87,16 @@ fun TargetDeviceCard(
             ) {
                 InfoRow(label = "Target Status:", value = when (phoneState) {
                     is TargetPhoneState.Connected -> (phoneState as TargetPhoneState.Connected).vidPid
-                    else -> if (isDryRun) "Connected (BROM Mode Emulation)" else "Device Disconnected"
+                    else -> if (isDryRun) "Connected (BROM / DA Mode)" else "Device Disconnected"
                 })
-                InfoRow(label = "Chipset ID:", value = chipInfo.chipIdHex)
+                InfoRow(label = "Detected Device:", value = "${chipInfo.brandName} ${chipInfo.modelName}")
+                InfoRow(label = "Platform Chipset:", value = chipInfo.chipIdHex)
                 InfoRow(label = "HW Code / Sub:", value = "${chipInfo.hwCodeHex} / ${chipInfo.hwSubcodeHex}")
-                InfoRow(label = "BROM State:", value = chipInfo.bromState)
+                InfoRow(label = "Storage (ROM):", value = "${chipInfo.storageType} - ${chipInfo.romCapacityFormatted}")
+                InfoRow(label = "Storage Chip / CID:", value = "${chipInfo.storageManufacturer} (${chipInfo.storageChipModel})")
+                InfoRow(label = "System Memory (RAM):", value = chipInfo.ramCapacityFormatted)
+                InfoRow(label = "RPMB Security Partition:", value = chipInfo.rpmbSizeFormatted)
+                InfoRow(label = "BROM / DA State:", value = chipInfo.bromState)
             }
 
             // Buttons

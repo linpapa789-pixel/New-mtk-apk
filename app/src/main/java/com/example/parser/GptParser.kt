@@ -135,7 +135,7 @@ object GptParser {
 
     private fun parseUtf16LeName(bytes: ByteArray): String {
         val sb = StringBuilder()
-        for (i in 0 until bytes.size step 2) {
+        for (i in 0 until (bytes.size - 1) step 2) {
             val charCode = (bytes[i].toInt() and 0xFF) or ((bytes[i + 1].toInt() and 0xFF) shl 8)
             if (charCode == 0) break
             sb.append(charCode.toChar())
